@@ -1,0 +1,28 @@
+{
+  "name": "FarmtoClick - Fresh Produce Direct from Farmers",
+  "short_name": "FarmtoClick",
+  "description": "Connect directly with local farmers to buy fresh produce and support sustainable farming",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#4CAF50",
+  "theme_color": "#4CAF50",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/logo192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["shopping", "food", "lifestyle"],
+  "lang": "en-US",
+  "dir": "ltr"
+}

@@ -1,0 +1,2691 @@
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory
+from flask.views import MethodView
+from flask_login import LoginManager, current_user, login_required
+from flask_cors import CORS
+from mongoengine import connect
+from pymongo import MongoClient
+from datetime import datetime, timedelta
+import io
+import smtplib
+import ssl
+from email.message import EmailMessage
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
+import os
+import uuid
+import re
+from werkzeug.utils import secure_filename
+from config import config
+from image_verification import ImageVerificationSystem
+import jwt
+from bson import ObjectId
+
+# Create Flask app
+app = Flask(__name__)
+app.config.from_object(config['development'])
+
+# Enable CORS for frontend
+CORS(app,
+     origins=['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001'],
+     allow_headers=['Content-Type', 'Authorization'],
+     supports_credentials=True,
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
+
+# JWT Configuration
+app.config['JWT_SECRET_KEY'] = 'your-jwt-secret-key-change-in-production'
+app.config['JWT_ACCESS_TOKEN_EXPIRE'] = timedelta(hours=24)
+
+def send_system_email(to_email, subject, body, attachments=None, html_body=None):
+    """Send an email using configured SMTP settings."""
+    mail_user = app.config.get('MAIL_USERNAME')
+    mail_pass = app.config.get('MAIL_PASSWORD')
+    mail_server = app.config.get('MAIL_SERVER')
+    mail_port = app.config.get('MAIL_PORT')
+    mail_use_tls = app.config.get('MAIL_USE_TLS')
+    mail_sender = app.config.get('MAIL_DEFAULT_SENDER')
+
+    if not all([mail_user, mail_pass, mail_server, mail_port, mail_sender]):
+        print("Email not configured: missing SMTP settings.")
+        return False
+
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['From'] = mail_sender
+    msg['To'] = to_email
+    msg.set_content(body)
+    if html_body:
+        msg.add_alternative(html_body, subtype='html')
+
+    if attachments:
+        for attachment in attachments:
+            filename = attachment.get('filename')
+            content = attachment.get('content')
+            maintype = attachment.get('maintype', 'application')
+            subtype = attachment.get('subtype', 'octet-stream')
+            if filename and content:
+                msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
+
+    try:
+        context = ssl.create_default_context()
+        if mail_use_tls:
+            with smtplib.SMTP(mail_server, mail_port) as server:
+                server.starttls(context=context)
+                server.login(mail_user, mail_pass)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP_SSL(mail_server, mail_port, context=context) as server:
+                server.login(mail_user, mail_pass)
+                server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"Email send error: {e}")
+        return False
+
+def build_email_html(title, subtitle, content_html, badge_text=None):
+        badge_html = ""
+        if badge_text:
+                badge_html = f"""
+                <div style="display:inline-block; padding:6px 12px; background:#eef6ef; color:#1f4d1f; border-radius:999px; font-weight:600; font-size:12px; margin:8px 0 0;">
+                        {badge_text}
+                </div>
+                """
+
+        return f"""
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; background:#f6f7fb; padding:28px;">
+            <div style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:14px; overflow:hidden; box-shadow:0 12px 32px rgba(15,23,42,0.12);">
+                <div style="background:#2c7a2c; color:#ffffff; padding:20px 24px;">
+                    <h2 style="margin:0; font-size:20px;">FarmtoClick</h2>
+                    <p style="margin:6px 0 0; font-size:14px;">{subtitle}</p>
+                </div>
+                <div style="padding:24px; color:#111827;">
+                    <h3 style="margin:0 0 8px; font-size:18px;">{title}</h3>
+                    {badge_html}
+                    <div style="margin-top:16px; font-size:14px; line-height:1.6; color:#374151;">
+                        {content_html}
+                    </div>
+                </div>
+                <div style="padding:14px 22px; font-size:12px; color:#6b7280; border-top:1px solid #e5e7eb; background:#fafafa;">
+                    This is an automated message from FarmtoClick. Please do not reply.
+                </div>
+            </div>
+        </div>
+        """
+
+def generate_receipt_pdf(order_id, buyer_name, buyer_email, items, total_amount):
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    width, height = letter
+
+    margin_x = 50
+    top = height - 50
+
+    pdf.setFillColorRGB(0.17, 0.48, 0.17)
+    pdf.rect(0, height - 80, width, 80, stroke=0, fill=1)
+    pdf.setFillColorRGB(1, 1, 1)
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'images', 'farm.jpg')
+    if os.path.exists(logo_path):
+        try:
+            logo = ImageReader(logo_path)
+            pdf.drawImage(logo, margin_x, height - 70, width=42, height=42, mask='auto')
+        except Exception:
+            pass
+
+    pdf.setFont("Helvetica-Bold", 18)
+    pdf.drawString(margin_x + 52, height - 50, "FarmtoClick")
+    pdf.setFont("Helvetica", 11)
+    pdf.drawString(margin_x + 52, height - 68, "Order Receipt")
+
+    pdf.setFillColorRGB(0, 0, 0)
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(margin_x, top - 40, f"Order ID: {order_id}")
+    pdf.drawString(margin_x, top - 55, f"Customer: {buyer_name}")
+    pdf.drawString(margin_x, top - 70, f"Email: {buyer_email}")
+    pdf.drawString(margin_x, top - 85, f"Date: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
+
+    pdf.setStrokeColorRGB(0.9, 0.9, 0.9)
+    pdf.line(margin_x, top - 95, width - margin_x, top - 95)
+
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(margin_x, top - 115, "Item")
+    pdf.drawString(width - 220, top - 115, "Qty")
+    pdf.drawString(width - 170, top - 115, "Price")
+    pdf.drawString(width - 110, top - 115, "Total")
+
+    y = top - 135
+    pdf.setFont("Helvetica", 10)
+    for item in items:
+        name = item.get('name', 'Item')
+        qty = int(item.get('quantity', 1))
+        price = float(item.get('price', 0))
+        line_total = price * qty
+
+        pdf.drawString(margin_x, y, name[:40])
+        pdf.drawRightString(width - 190, y, str(qty))
+        pdf.drawRightString(width - 130, y, f"₱{price:.2f}")
+        pdf.drawRightString(width - margin_x, y, f"₱{line_total:.2f}")
+        y -= 16
+        if y < 90:
+            pdf.showPage()
+            y = height - 60
+
+    pdf.setStrokeColorRGB(0.85, 0.85, 0.85)
+    pdf.line(margin_x, y - 6, width - margin_x, y - 6)
+
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawRightString(width - margin_x, y - 22, f"Total: ₱{float(total_amount):.2f}")
+
+    pdf.setFont("Helvetica", 9)
+    pdf.setFillColorRGB(0.4, 0.4, 0.4)
+    pdf.drawString(margin_x, 40, "Thank you for shopping with FarmtoClick.")
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
+# Initialize MongoEngine connection
+try:
+    connect(host=app.config['MONGODB_URI'])
+    print("✅ Connected to MongoDB with MongoEngine!")
+except Exception as e:
+    print(f"❌ MongoDB connection failed: {e}")
+
+# PyMongo fallback for legacy modules
+_mongo_client = None
+
+
+def get_mongodb_db():
+    """Provide PyMongo database/client for modules still using direct access."""
+    global _mongo_client
+    try:
+        if _mongo_client is None:
+            _mongo_client = MongoClient(app.config['MONGODB_URI'])
+            print("✅ PyMongo client initialized!")
+        db = _mongo_client.get_database()
+        return db, _mongo_client
+    except Exception as e:
+        print(f"❌ PyMongo connection failed: {e}")
+        return None, None
+
+
+def get_mongoengine_user(pymongo_user):
+    """Ensure a corresponding MongoEngine User document exists for the given PyMongo-backed user."""
+    if not pymongo_user:
+        return None
+
+    try:
+        from models import User as MEUser
+        import traceback
+
+        def _get(value, key, default=None):
+            if hasattr(value, key):
+                return getattr(value, key)
+            if isinstance(value, dict):
+                return value.get(key, default)
+            return default
+
+        email = _get(pymongo_user, 'email')
+        if not email:
+            print(f"❌ No email found for user: {pymongo_user}")
+            return None
+
+        fields = {
+            'email': email,
+            'password_hash': _get(pymongo_user, 'password_hash', ''),
+            'first_name': _get(pymongo_user, 'first_name', ''),
+            'last_name': _get(pymongo_user, 'last_name', ''),
+            'phone': _get(pymongo_user, 'phone'),
+            'is_farmer': bool(_get(pymongo_user, 'is_farmer', False)),
+            'farm_name': _get(pymongo_user, 'farm_name'),
+            'farm_location': _get(pymongo_user, 'farm_location'),
+            'farm_phone': _get(pymongo_user, 'farm_phone'),
+            'profile_picture': _get(pymongo_user, 'profile_picture')
+        }
+
+        me_user = MEUser.objects(email=email).first()
+        if me_user:
+            update_fields = {k: v for k, v in fields.items() if v is not None and k != 'email'}
+            if update_fields:
+                me_user.update(**update_fields)
+                me_user.reload()
+            me_user.reload()
+            return me_user
+
+        create_fields = {k: v for k, v in fields.items() if v is not None}
+        me_user = MEUser(**create_fields)
+        me_user.save()
+        print(f"✅ Created MongoEngine user for {email}")
+        return me_user
+    except Exception as exc:
+        import traceback
+        print(f"❌ Failed to sync MongoEngine user: {exc}")
+        traceback.print_exc()
+        return None
+
+def ensure_mongoengine_user(current_user_obj):
+    """Safely get or create a MongoEngine user from the current Flask-Login user.
+    
+    This function handles both cases:
+    1. If current_user is already a MongoEngine User
+    2. If current_user is from user_model.User (PyMongo) and needs to be synced
+    """
+    if not current_user_obj or not getattr(current_user_obj, 'is_authenticated', False):
+        print("❌ [ensure_mongoengine_user] User not authenticated or None")
+        return None
+    
+    try:
+        from models import User as MEUser
+        from user_model import User as PyMongoUser
+        import traceback
+        
+        # Check if current_user is already a MongoEngine user
+        if isinstance(current_user_obj, MEUser):
+            print(f"✅ [ensure_mongoengine_user] User is already MongoEngine-backed: {current_user_obj.email}")
+            return current_user_obj
+        
+        # Get email from current_user (works for both PyMongo and MongoEngine users)
+        email = getattr(current_user_obj, 'email', None)
+        if not email:
+            print(f"❌ [ensure_mongoengine_user] No email found on user object")
+            return None
+        
+        print(f"🔍 [ensure_mongoengine_user] Processing user: {email}")
+        
+        # Try to get existing MongoEngine user by email
+        try:
+            print(f"   → Searching for MongoEngine user by email...")
+            me_user = MEUser.objects(email=email).first()
+            if me_user:
+                print(f"   ✅ Found existing MongoEngine user")
+                print(f"   ✅ Returning existing user (skipping update to avoid ID conflicts)")
+                return me_user
+            else:
+                print(f"   ℹ️  MongoEngine user not found - will try to create")
+        except Exception as e:
+            print(f"   ❌ Error searching for MongoEngine user: {e}")
+            traceback.print_exc()
+            print(f"   → Will attempt to create new user anyway")
+        
+        # If not found and current_user is PyMongo, create MongoEngine user from it
+        if isinstance(current_user_obj, PyMongoUser):
+            try:
+                print(f"   → Creating new MongoEngine user from PyMongo user...")
+                
+                # REQUIRED FIELDS - must have values
+                email = getattr(current_user_obj, 'email', None)
+                password_hash = getattr(current_user_obj, 'password_hash', '')
+                first_name = getattr(current_user_obj, 'first_name', '') or 'Farmer'
+                last_name = getattr(current_user_obj, 'last_name', '') or 'User'
+                
+                # Validate required fields
+                if not email:
+                    raise ValueError("Email is required")
+                if not password_hash or len(password_hash) < 6:
+                    print(f"   ⚠️  Warning: password_hash is empty or too short, using default hash")
+                    from werkzeug.security import generate_password_hash
+                    password_hash = generate_password_hash('temporary_password')
+                if not first_name or first_name == 'Farmer':
+                    first_name = 'Farmer'
+                if not last_name or last_name == 'User':
+                    last_name = 'User'
+                
+                fields = {
+                    'email': email,
+                    'password_hash': password_hash,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'phone': getattr(current_user_obj, 'phone', None),
+                    'is_farmer': bool(getattr(current_user_obj, 'is_farmer', False)),
+                    'farm_name': getattr(current_user_obj, 'farm_name', None),
+                    'farm_location': getattr(current_user_obj, 'farm_location', None),
+                    'farm_phone': getattr(current_user_obj, 'farm_phone', None),
+                    'profile_picture': getattr(current_user_obj, 'profile_picture', None),
+                    'is_active': bool(getattr(current_user_obj, 'is_active', True)),
+                }
+                # Remove None values for optional fields
+                fields = {k: v for k, v in fields.items() if k in ['email', 'password_hash', 'first_name', 'last_name', 'is_farmer', 'is_active'] or v is not None}
+                
+                print(f"   → Creating with fields: email={fields['email']}, first_name={fields['first_name']}, last_name={fields['last_name']}, is_farmer={fields['is_farmer']}")
+                me_user = MEUser(**fields)
+                me_user.save()
+                print(f"   ✅ Successfully created MongoEngine user with id: {me_user.id}")
+                return me_user
+            except Exception as create_error:
+                print(f"   ❌ FAILED to create MongoEngine user: {create_error}")
+                print(f"   ❌ Exception type: {type(create_error).__name__}")
+                traceback.print_exc()
+                return None
+        else:
+            print(f"❌ [ensure_mongoengine_user] User is not PyMongo type: {type(current_user_obj)}")
+            return None
+        
+    except ImportError as ie:
+        print(f"❌ [ensure_mongoengine_user] Import error: {ie}")
+        import traceback
+        traceback.print_exc()
+        return None
+    except Exception as e:
+        import traceback
+        print(f"❌ [ensure_mongoengine_user] Unexpected error: {e}")
+        print(f"❌ Exception type: {type(e).__name__}")
+        traceback.print_exc()
+        return None
+
+# Ensure secret key is set
+if not app.secret_key:
+    app.secret_key = 'dev-secret-key-change-in-production'
+
+# Initialize ML verification system
+try:
+    verifier = ImageVerificationSystem()
+    print("✅ ML Verification System initialized!")
+except Exception as e:
+    print(f"⚠️ Warning: ML Verification System failed to initialize: {e}")
+    verifier = None
+
+# Initialize Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.login_message_category = 'info'
+
+# Session configuration
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+
+# File upload configuration
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'profiles')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
+# Business verification upload configuration
+VERIFICATION_UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'verifications')
+os.makedirs(VERIFICATION_UPLOAD_FOLDER, exist_ok=True)
+
+# Ensure upload directory exists
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Serve uploaded profile pictures at /uploads/profiles/<filename>
+@app.route('/uploads/profiles/<filename>')
+def uploaded_profile_picture(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def _ml_verify_business_stub(image_path: str):
+    # Placeholder for ML verification.
+    # Replace with a real model/API call later.
+    return {
+        'status': 'pending',
+        'score': None,
+        'details': 'ML verification not configured yet.'
+    }
+
+# User loader for Flask-Login
+@login_manager.user_loader
+def load_user(user_id):
+    try:
+        from user_model import User
+        db, _ = get_mongodb_db()
+        if db is None:
+            print("Error loading user: database unavailable")
+            return None
+        return User.get_by_id(db, user_id)
+    except Exception as e:
+        print(f"Error loading user: {e}")
+        return None
+
+# Import models after MongoEngine initialization
+def init_models():
+    try:
+        from models import User, Product, Order, Review
+        print("✅ Models imported successfully!")
+        return True
+    except ImportError as e:
+        print(f"❌ Failed to import models: {e}")
+        return False
+
+# Test MongoEngine connection on startup
+print("📊 Testing MongoEngine connection...")
+try:
+    from models import User
+    # Test connection by attempting a simple query
+    User.objects.limit(1).count()
+    print("✅ Connected to MongoDB successfully!")
+    init_models()
+except Exception as e:
+    print(f"❌ MongoDB connection failed: {e}")
+
+# Routes
+@app.route('/')
+def landing():
+    try:
+        # Get featured products (limit to 6)
+        db, _ = get_mongodb_db()
+        if db is not None:
+            products_cursor = db.products.find({'available': True}).sort('created_at', -1).limit(6)
+            featured_products = list(products_cursor)
+            
+            # Convert ObjectId to string for JSON serialization
+            for prod in featured_products:
+                prod['_id'] = str(prod['_id'])
+                prod['id'] = prod.get('id') or prod['_id']
+            
+            return render_template('landing.html', products=featured_products)
+        else:
+            return render_template('landing.html', products=[])
+    except Exception as e:
+        print(f"Error loading landing page: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('landing.html', products=[])
+
+@app.route('/products')
+def products():
+    try:
+        # Get all available products from PyMongo
+        db, _ = get_mongodb_db()
+        if db is None:
+            return render_template('products.html', products=[], categories=[], current_category=None)
+        
+        selected_category = request.args.get('category', '').strip()
+        search_query = request.args.get('search', '').strip()
+        min_price_raw = request.args.get('min_price', '').strip()
+        max_price_raw = request.args.get('max_price', '').strip()
+        sort_by = request.args.get('sort', 'newest').strip()
+
+        min_price = None
+        max_price = None
+        try:
+            min_price = float(min_price_raw) if min_price_raw != '' else None
+        except ValueError:
+            min_price = None
+        try:
+            max_price = float(max_price_raw) if max_price_raw != '' else None
+        except ValueError:
+            max_price = None
+
+        query = {'available': True}
+        if selected_category:
+            query['category'] = {
+                '$regex': f"^{re.escape(selected_category)}$",
+                '$options': 'i'
+            }
+        if search_query:
+            query['$or'] = [
+                {'name': {'$regex': re.escape(search_query), '$options': 'i'}},
+                {'description': {'$regex': re.escape(search_query), '$options': 'i'}}
+            ]
+        if min_price is not None or max_price is not None:
+            price_filter = {}
+            if min_price is not None:
+                price_filter['$gte'] = min_price
+            if max_price is not None:
+                price_filter['$lte'] = max_price
+            query['price'] = price_filter
+
+        sort_map = {
+            'newest': ('created_at', -1),
+            'price_low': ('price', 1),
+            'price_high': ('price', -1),
+            'name_asc': ('name', 1),
+            'name_desc': ('name', -1)
+        }
+        sort_field, sort_dir = sort_map.get(sort_by, ('created_at', -1))
+
+        # Query all available products, sorted by selected option
+        products_cursor = db.products.find(query).sort(sort_field, sort_dir)
+        products_list = list(products_cursor)
+        
+        # Convert ObjectId to string for JSON serialization
+        for prod in products_list:
+            prod['_id'] = str(prod['_id'])
+            prod['id'] = prod.get('id') or prod['_id']
+        
+        # Get categories from form data
+        categories = ['Vegetables', 'Fruits', 'Grains & Cereals', 'Dairy & Eggs', 'Meat & Poultry', 
+                     'Herbs & Spices', 'Nuts & Seeds', 'Honey & Jams', 'Oils & Condiments', 
+                     'Baked Goods', 'Beverages', 'Organic Products', 'Flowers']
+        
+        print(f"✅ Loaded {len(products_list)} products")
+        
+        return render_template('products.html', 
+                      products=products_list, 
+                      categories=categories,
+                              current_category=selected_category or None,
+                              search_query=search_query,
+                              min_price=min_price_raw,
+                              max_price=max_price_raw,
+                              sort_by=sort_by)
+    except Exception as e:
+        print(f"Error loading products: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('products.html', products=[], categories=[], current_category=None)
+
+@app.route('/product/<product_id>')
+def product_detail(product_id):
+    try:
+        from models import Product, User
+        
+        # Get product by ID
+        product = Product.objects(id=product_id).first()
+        if not product:
+            product = None
+        
+        if product:
+            return render_template('product_detail.html', product=product)
+    except Exception as e:
+        print(f"Error loading product detail (MongoEngine): {e}")
+
+    # Fallback to PyMongo
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            flash('Product not found', 'error')
+            return redirect(url_for('products'))
+
+        from bson import ObjectId
+        product_data = None
+        if ObjectId.is_valid(product_id):
+            product_data = db.products.find_one({'_id': ObjectId(product_id)})
+        if not product_data:
+            product_data = db.products.find_one({'id': product_id})
+
+        if not product_data:
+            flash('Product not found', 'error')
+            return redirect(url_for('products'))
+
+        product_data['_id'] = str(product_data.get('_id'))
+        product_data['id'] = product_data.get('id') or product_data['_id']
+
+        # Build farmer data
+        farmer_doc = None
+        farmer_user_id = product_data.get('farmer_user_id') or product_data.get('farmer')
+        if farmer_user_id:
+            farmer_doc = db.users.find_one({'id': farmer_user_id})
+            if not farmer_doc and ObjectId.is_valid(str(farmer_user_id)):
+                farmer_doc = db.users.find_one({'_id': ObjectId(str(farmer_user_id))})
+        if not farmer_doc and product_data.get('farmer_email'):
+            farmer_doc = db.users.find_one({'email': product_data.get('farmer_email')})
+
+        if farmer_doc:
+            farmer_name = f"{farmer_doc.get('first_name', '')} {farmer_doc.get('last_name', '')}".strip()
+            if not farmer_name:
+                farmer_name = farmer_doc.get('full_name') or farmer_doc.get('farm_name') or 'Farmer'
+            product_data['farmer'] = {
+                'id': farmer_doc.get('id') or str(farmer_doc.get('_id')),
+                'name': farmer_name,
+                'farm_name': farmer_doc.get('farm_name') or farmer_name,
+                'location': farmer_doc.get('farm_location') or farmer_doc.get('location') or 'Location not specified'
+            }
+
+        # Related products
+        related_products = []
+        if farmer_user_id:
+            related_cursor = db.products.find({'farmer': farmer_user_id, 'available': True}).sort('created_at', -1)
+            related_products = list(related_cursor)
+            for rp in related_products:
+                rp['_id'] = str(rp.get('_id'))
+                rp['id'] = rp.get('id') or rp['_id']
+
+        return render_template('product_detail.html', product=product_data, related_products=related_products)
+    except Exception as e:
+        print(f"Error loading product detail (PyMongo): {e}")
+        flash('Product not found', 'error')
+        return redirect(url_for('products'))
+
+@app.route('/cart/add/<product_id>', methods=['POST'])
+@login_required
+def add_to_cart(product_id):
+    """Add product to cart (PyMongo-backed)."""
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'success': False, 'message': 'Database connection failed'}), 500
+
+        data = request.get_json(silent=True) or {}
+        try:
+            quantity = int(data.get('quantity', 1))
+        except (TypeError, ValueError):
+            quantity = 1
+        if quantity < 1:
+            quantity = 1
+
+        # Fetch product (MongoEngine first, fallback to PyMongo)
+        product = None
+        product_data = None
+        try:
+            from models import Product
+            product = Product.objects(id=product_id).first()
+        except Exception:
+            product = None
+
+        if not product:
+            try:
+                from bson import ObjectId
+                product_data = db.products.find_one({'_id': ObjectId(product_id)})
+            except Exception:
+                product_data = db.products.find_one({'id': product_id})
+
+        if product:
+            if not product.available:
+                return jsonify({'success': False, 'message': 'Product not available'}), 400
+            if quantity > product.quantity:
+                return jsonify({'success': False, 'message': 'Not enough stock'}), 400
+            product_name = product.name
+        elif product_data:
+            if not product_data.get('available', True):
+                return jsonify({'success': False, 'message': 'Product not available'}), 400
+            if quantity > int(product_data.get('quantity', 0)):
+                return jsonify({'success': False, 'message': 'Not enough stock'}), 400
+            product_name = product_data.get('name', 'Product')
+        else:
+            return jsonify({'success': False, 'message': 'Product not found'}), 404
+
+        cart = db.carts.find_one({'user_id': current_user.id})
+        items = []
+        if cart and isinstance(cart.get('items'), list):
+            items = cart['items']
+
+        stored_product_id = str(product_id)
+        if product_data and product_data.get('id'):
+            stored_product_id = str(product_data.get('id'))
+
+        existing_item = next((item for item in items if item.get('product_id') == stored_product_id), None)
+        if existing_item:
+            existing_item['quantity'] = int(existing_item.get('quantity', 0)) + quantity
+        else:
+            items.append({
+                'product_id': stored_product_id,
+                'quantity': quantity,
+                'added_at': datetime.utcnow()
+            })
+
+        payload = {
+            'user_id': current_user.id,
+            'items': items,
+            'updated_at': datetime.utcnow()
+        }
+
+        if cart:
+            db.carts.update_one({'_id': cart['_id']}, {'$set': payload})
+        else:
+            payload['created_at'] = datetime.utcnow()
+            db.carts.insert_one(payload)
+
+        cart_count = sum(int(item.get('quantity', 0)) for item in items)
+
+        return jsonify({
+            'success': True,
+            'message': f'{product_name} added to cart',
+            'cart_count': cart_count
+        })
+    except Exception as e:
+        print(f"Add to cart error: {e}")
+        return jsonify({'success': False, 'message': 'Failed to add to cart'}), 500
+
+@app.route('/cart')
+@login_required
+def cart():
+    """View shopping cart (PyMongo-backed)."""
+    cart_items = []
+    total = 0
+    shipping_defaults = {}
+
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return render_template('cart', cart_items=[], total=0, cart_count=0, shipping_defaults={})
+
+        try:
+            user_doc = db.users.find_one({'email': current_user.email})
+            if user_doc:
+                shipping_defaults = {
+                    'shipping_name': user_doc.get('shipping_name') or f"{user_doc.get('first_name', '')} {user_doc.get('last_name', '')}".strip(),
+                    'shipping_phone': user_doc.get('shipping_phone') or user_doc.get('phone', ''),
+                    'overall_location': user_doc.get('overall_location', ''),
+                    'shipping_address': user_doc.get('shipping_address', '')
+                }
+        except Exception as e:
+            print(f"Shipping defaults load error: {e}")
+
+        cart_doc = db.carts.find_one({'user_id': current_user.id})
+        if cart_doc and cart_doc.get('items'):
+            for item in cart_doc['items']:
+                product_id = item.get('product_id')
+                qty = int(item.get('quantity', 1))
+
+                product_data = None
+                try:
+                    from bson import ObjectId
+                    product_data = db.products.find_one({'_id': ObjectId(product_id)})
+                except Exception:
+                    product_data = db.products.find_one({'id': product_id})
+
+                if product_data:
+                    price = float(product_data.get('price', 0) or 0)
+                    item_total = price * qty
+                    product_id_value = product_data.get('id') or product_data.get('_id')
+                    cart_items.append({
+                        'product': {
+                            'id': str(product_id_value),
+                            'name': product_data.get('name', 'Product'),
+                            'price': price,
+                            'unit': product_data.get('unit', ''),
+                            'quantity': int(product_data.get('quantity', 0)),
+                            'image_url': product_data.get('image_url')
+                        },
+                        'quantity': qty,
+                        'total': item_total
+                    })
+                    total += item_total
+
+        cart_count = sum(item['quantity'] for item in cart_items)
+        return render_template('cart', cart_items=cart_items, total=total, cart_count=cart_count, shipping_defaults=shipping_defaults)
+    except Exception as e:
+        print(f"Cart load error: {e}")
+        return render_template('cart', cart_items=[], total=0, cart_count=0, shipping_defaults=shipping_defaults)
+
+@app.route('/cart/update/<product_id>', methods=['POST'])
+@login_required
+def update_cart(product_id):
+    """Update cart item quantity (PyMongo-backed)."""
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'success': False, 'message': 'Database connection failed'}), 500
+
+        quantity = int(request.form.get('quantity', 1))
+        if quantity < 1:
+            quantity = 1
+
+        cart_doc = db.carts.find_one({'user_id': current_user.id})
+        if not cart_doc:
+            return jsonify({'success': False, 'message': 'Cart not found'}), 404
+
+        updated = False
+        for item in cart_doc.get('items', []):
+            if item.get('product_id') == product_id:
+                item['quantity'] = quantity
+                updated = True
+                break
+
+        if updated:
+            db.carts.update_one({'_id': cart_doc['_id']}, {'$set': {'items': cart_doc['items'], 'updated_at': datetime.utcnow()}})
+            return jsonify({'success': True})
+
+        return jsonify({'success': False, 'message': 'Item not found'}), 404
+    except Exception as e:
+        print(f"Update cart error: {e}")
+        return jsonify({'success': False, 'message': 'Failed to update cart'}), 500
+
+@app.route('/cart/remove/<product_id>', methods=['POST'])
+@login_required
+def remove_from_cart(product_id):
+    """Remove item from cart (PyMongo-backed)."""
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'success': False, 'message': 'Database connection failed'}), 500
+
+        cart_doc = db.carts.find_one({'user_id': current_user.id})
+        if not cart_doc:
+            return jsonify({'success': False, 'message': 'Cart not found'}), 404
+
+        new_items = [item for item in cart_doc.get('items', []) if item.get('product_id') != product_id]
+        db.carts.update_one({'_id': cart_doc['_id']}, {'$set': {'items': new_items, 'updated_at': datetime.utcnow()}})
+
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Remove from cart error: {e}")
+        return jsonify({'success': False, 'message': 'Failed to remove item'}), 500
+
+@app.route('/farmers')
+def farmers():
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return render_template('farmers.html', farmers=[])
+
+        # Get all farmers from users collection
+        farmers_list = list(db.users.find({'is_farmer': True}))
+
+        # Get product counts for each farmer
+        for farmer in farmers_list:
+            farmer_id_str = str(farmer.get('id'))  # Use the UUID id field
+            product_count = db.products.count_documents({'farmer': farmer_id_str})
+            farmer['product_count'] = product_count
+            # Convert MongoDB ObjectId to string for JSON serialization
+            farmer['_id'] = str(farmer['_id'])
+
+        print(f"✅ Loaded {len(farmers_list)} farmers")
+        return render_template('farmers.html', farmers=farmers_list)
+    except Exception as e:
+        print(f"Farmers page error: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('farmers.html', farmers=[])
+
+@app.route('/farmer/verify')
+@login_required
+def farmer_verify_form():
+    return render_template('farmer_verify.html')
+
+@app.route('/farmer/verify', methods=['POST'])
+@login_required
+def farmer_verify():
+    # Get the permit photo (business permit)
+    permit_file = request.files.get('business_permit_photo')
+    
+    if not permit_file or not permit_file.filename:
+        flash('Please upload a business permit image for verification.', 'error')
+        return redirect(url_for('farmer_verify_form'))
+
+    if not allowed_file(permit_file.filename):
+        flash('Invalid file type. Please upload JPG or PNG image.', 'error')
+        return redirect(url_for('farmer_verify_form'))
+
+    # Check file size
+    permit_file.seek(0, os.SEEK_END)
+    file_size = permit_file.tell()
+    permit_file.seek(0)
+    if file_size > MAX_FILE_SIZE:
+        flash('Verification image must be less than 5MB.', 'error')
+        return redirect(url_for('farmer_verify_form'))
+
+    # Save the permit file
+    permit_filename = secure_filename(permit_file.filename)
+    permit_unique_filename = f"permit_{uuid.uuid4().hex}_{permit_filename}"
+    permit_path = os.path.join(VERIFICATION_UPLOAD_FOLDER, permit_unique_filename)
+    permit_file.save(permit_path)
+
+    try:
+        from user_model import User
+        db, client = get_mongodb_db()
+        if db is None:
+            flash('Database connection failed. Please try again.', 'error')
+            return redirect(url_for('farmer_verify_form'))
+
+        user = User.get_by_email(db, current_user.email)
+        if not user:
+            flash('User not found.', 'error')
+            return redirect(url_for('farmer_verify_form'))
+
+        # Update farm information
+        is_farmer_already = bool(getattr(user, 'is_farmer', False))
+        if not is_farmer_already:
+            user.farm_name = request.form.get('farm_name', '').strip()
+            user.farm_location = request.form.get('farm_location', '').strip()
+            user.farm_description = request.form.get('farm_description', '').strip()
+            user.farm_phone = request.form.get('farm_phone', '').strip()
+            user.exact_address = request.form.get('exact_address', '').strip()
+            user.farmer_application_status = 'pending'
+            user.farmer_application_submitted_at = datetime.utcnow()
+
+        # Store verification submission
+        user.business_verification_status = 'pending'
+        user.business_verification_image = permit_unique_filename
+        user.business_verification_submitted_at = datetime.utcnow()
+
+        # Run ML verification if system is available
+        if verifier:
+            ml_result = verifier.verify_permit_image(permit_path)
+            user.business_verification_ml = ml_result
+            verifier.save_verification_record(str(user.id), ml_result)
+            
+            if ml_result.get('valid'):
+                user.business_verification_status = 'verified'
+                user.is_farmer = True
+                user.permit_extracted_text = ml_result.get('extracted_text', '')
+                user.save(db)
+                flash('✅ Business permit verified! You are now a registered farmer.', 'success')
+                return redirect(url_for('farmer_verify_form'))
+            else:
+                reason = ml_result.get('permit_validation', {}).get('message', 'Image quality or format issue')
+                user.business_verification_status = 'rejected'
+                user.save(db)
+                flash(f'❌ Permit verification failed: {reason}. Please try again with a clearer image.', 'error')
+                return redirect(url_for('farmer_verify_form'))
+        else:
+            # Fallback if ML system not available
+            user.business_verification_status = 'pending'
+            user.save(db)
+            flash('Permit submitted for manual verification. Status: Pending review.', 'info')
+            return redirect(url_for('farmer_verify_form'))
+
+    except Exception as e:
+        print(f"Verification error: {e}")
+        flash(f'Verification failed: {str(e)}', 'error')
+        return redirect(url_for('farmer_verify_form'))
+
+@app.route('/start-selling', methods=['GET', 'POST'])
+@login_required
+def start_selling():
+    """Start Selling page + action to promote the user to a farmer/seller account."""
+    try:
+        from user_model import User
+        
+        db, client = get_mongodb_db()
+        if db is None:
+            flash('Database connection failed. Please try again.', 'error')
+            return redirect('/profile')
+        
+        user = User.get_by_email(db, current_user.email)
+        if not user:
+            flash('User not found. Please log in again.', 'error')
+            return redirect('/auth/logout')
+
+        # If already a farmer, skip the activation page.
+        if user.is_farmer:
+            return redirect('/farmer-dashboard')
+
+        if request.method == 'GET':
+            return render_template('start_selling.html')
+
+        # POST: activate seller
+        user.is_farmer = True
+
+        # Provide a sensible default farm name if empty
+        if not getattr(user, 'farm_name', None):
+            full_name = f"{user.first_name} {user.last_name}".strip()
+            user.farm_name = f"{full_name} Farm" if full_name else "My Farm"
+
+        user.save(db)
+        flash('Seller account activated! You can now start selling.', 'success')
+        return redirect('/farmer-dashboard')
+    except Exception as e:
+        print(f"Start selling error: {e}")
+        flash('Unable to activate seller account right now. Please try again.', 'error')
+        return redirect('/profile')
+
+@app.route('/farmer/<farmer_id>')
+def farmer_profile(farmer_id):
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return "Database connection failed", 503
+        
+        # Get farmer by ID (UUID from PyMongo users collection)
+        farmer = db.users.find_one({'id': farmer_id, 'is_farmer': True})
+        if not farmer:
+            return "Farmer not found", 404
+        
+        # Convert ObjectId to string for JSON serialization
+        farmer['_id'] = str(farmer['_id'])
+        
+        # Get farmer's available products
+        farmer_or_filters = [
+            {'farmer': farmer_id},
+            {'farmer_user_id': farmer_id},
+            {'farmer_email': farmer.get('email')}
+        ]
+        try:
+            from bson import ObjectId
+            if ObjectId.is_valid(str(farmer_id)):
+                farmer_or_filters.append({'farmer': ObjectId(str(farmer_id))})
+        except Exception:
+            pass
+
+        farmer_products = list(db.products.find({
+            '$or': farmer_or_filters,
+            'available': True
+        }).sort('created_at', -1))
+        
+        # Convert ObjectIds to strings
+        for prod in farmer_products:
+            prod['_id'] = str(prod['_id'])
+            prod['id'] = prod.get('id') or prod['_id']
+        
+        print(f"✅ Loaded profile for farmer: {farmer.get('email')}, Products: {len(farmer_products)}")
+        return render_template('farmer_profile.html', farmer=farmer, products=farmer_products)
+    except Exception as e:
+        print(f"Farmer profile error: {e}")
+        import traceback
+        traceback.print_exc()
+        return "Farmer not found", 404
+
+@app.route('/auth/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        try:
+            from user_model import User
+            
+            print("🔍 Starting registration process...")
+            
+            # Get MongoDB connection
+            db, client = get_mongodb_db()
+            if db is None:
+                flash('Database connection failed. Please try again.', 'error')
+                return render_template('auth/register.html')
+            
+            # Get form data
+            first_name = request.form.get('first_name', '').strip()
+            last_name = request.form.get('last_name', '').strip()
+            email = request.form.get('email', '').strip()
+            phone = request.form.get('phone', '').strip()
+            password = request.form.get('password', '')
+            confirm_password = request.form.get('confirm_password', '')
+            # Farmer/seller registration is not available via self-service registration.
+            is_farmer = False
+            
+            print(f"📝 Form data: {first_name} {last_name}, {email}, is_farmer: {is_farmer}")
+            
+            # Basic validation
+            if not first_name or not last_name or not email or not password:
+                flash('All required fields must be filled.', 'error')
+                return render_template('auth/register.html')
+            
+            if len(password) < 6:
+                flash('Password must be at least 6 characters long.', 'error')
+                return render_template('auth/register.html')
+            
+            if password != confirm_password:
+                flash('Passwords do not match.', 'error')
+                return render_template('auth/register.html')
+            
+            # Check if user already exists
+            print("🔍 Checking for existing user...")
+            existing_user = User.get_by_email(db, email)
+            if existing_user:
+                flash('Email already registered. Please login.', 'error')
+                return redirect('/auth/login')
+            
+            # Create new user
+            print("👤 Creating new user...")
+            user = User(
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                phone=phone,
+                is_farmer=is_farmer
+            )
+            
+            # Set password
+            user.set_password(password)
+            
+            # Save user
+            print("💾 Saving user to database...")
+            user.save(db)
+            print("✅ User saved successfully!")
+            
+            # Log the user in
+            from flask_login import login_user
+            login_user(user)
+            
+            flash('Registration successful! Welcome to FarmtoClick!', 'success')
+            return redirect('/products')
+            
+        except Exception as e:
+            error_msg = f'Registration failed: {str(e)}'
+            print(f"❌ {error_msg}")
+            flash(error_msg, 'error')
+    
+    return render_template('auth/register.html')
+
+@app.route('/auth/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        try:
+            from user_model import User
+            from flask_login import login_user
+            
+            # Get MongoDB connection
+            db, client = get_mongodb_db()
+            if db is None:
+                flash('Database connection failed. Please try again.', 'error')
+                return render_template('auth/login.html')
+            
+            email = request.form.get('email', '').strip()
+            password = request.form.get('password', '')
+            
+            print(f"🔍 Login attempt for email: {email}")
+            
+            # Basic validation
+            if not email or not password:
+                flash('Email and password are required.', 'error')
+                return render_template('auth/login.html')
+            
+            # Find user
+            user = User.get_by_email(db, email)
+            print(f"👤 User found: {user is not None}")
+            
+            if user:
+                print(f"📧 User email: {user.email}")
+                print(f"🔐 Stored password hash: {user.password_hash[:50]}...")
+                print(f"🔑 Input password: {password}")
+                
+                # Check password
+                password_valid = user.check_password(password)
+                print(f"✅ Password valid: {password_valid}")
+                
+                if password_valid:
+                    # Set session as permanent
+                    from flask import session
+                    session.permanent = True
+                    
+                    login_user(user)
+                    flash(f'Welcome back, {user.first_name}! Redirecting to marketplace...', 'success')
+                    return redirect('/products')
+                else:
+                    print("❌ Password check failed")
+            else:
+                print("❌ User not found")
+            
+            flash('Invalid email or password.', 'error')
+                
+        except Exception as e:
+            error_msg = f'Login failed: {str(e)}'
+            print(f"❌ {error_msg}")
+            flash(error_msg, 'error')
+    
+    return render_template('auth/login.html')
+
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    shipping_defaults = {}
+    try:
+        db, _ = get_mongodb_db()
+        if db is not None:
+            user_doc = db.users.find_one({'email': current_user.email})
+            if user_doc:
+                shipping_defaults = {
+                    'overall_location': user_doc.get('overall_location', ''),
+                    'shipping_address': user_doc.get('shipping_address', '')
+                }
+    except Exception as e:
+        print(f"Shipping defaults load error: {e}")
+
+    def _render_profile():
+        return render_template('profile.html', shipping_defaults=shipping_defaults)
+
+    if request.method == 'POST':
+        try:
+            from user_model import User
+            
+            # Get MongoDB connection
+            db, client = get_mongodb_db()
+            if db is None:
+                flash('Database connection failed. Please try again.', 'error')
+                return _render_profile()
+
+            # Get form data
+            first_name = request.form.get('first_name', '').strip()
+            last_name = request.form.get('last_name', '').strip()
+            email = request.form.get('email', '').strip()
+            phone = request.form.get('phone', '').strip()
+            
+            # Get current user and update
+            user = User.get_by_email(db, current_user.email)
+            if user:
+                user.first_name = first_name
+                user.last_name = last_name
+                user.phone = phone
+                user.overall_location = request.form.get('overall_location', '').strip()
+                user.shipping_address = request.form.get('shipping_address', '').strip()
+                
+                # Handle profile picture upload
+                profile_picture = request.files.get('profile_picture')
+                remove_picture = request.form.get('remove_profile_picture') == '1'
+                
+                if remove_picture:
+                    # Remove existing profile picture
+                    if hasattr(user, 'profile_picture') and user.profile_picture:
+                        # Delete old file if it exists
+                        old_file_path = os.path.join(UPLOAD_FOLDER, user.profile_picture)
+                        if os.path.exists(old_file_path):
+                            os.remove(old_file_path)
+                        user.profile_picture = None
+                elif profile_picture and profile_picture.filename:
+                    # Upload new profile picture
+                    if allowed_file(profile_picture.filename):
+                        # Check file size
+                        profile_picture.seek(0, os.SEEK_END)
+                        file_size = profile_picture.tell()
+                        profile_picture.seek(0)
+                        
+                        if file_size > MAX_FILE_SIZE:
+                            flash('Profile picture must be less than 5MB.', 'error')
+                            return _render_profile()
+                        
+                        # Generate unique filename
+                        filename = secure_filename(profile_picture.filename)
+                        unique_filename = f"{uuid.uuid4().hex}_{filename}"
+                        
+                        # Save file
+                        file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+                        profile_picture.save(file_path)
+                        
+                        # Remove old file if it exists
+                        if hasattr(user, 'profile_picture') and user.profile_picture:
+                            old_file_path = os.path.join(UPLOAD_FOLDER, user.profile_picture)
+                            if os.path.exists(old_file_path):
+                                os.remove(old_file_path)
+                        
+                        # Update user profile picture
+                        user.profile_picture = unique_filename
+                    else:
+                        flash('Invalid file type. Please upload JPG, PNG, GIF, or WebP image.', 'error')
+                        return _render_profile()
+                
+                # Update farmer fields if applicable
+                if user.is_farmer:
+                    user.farm_name = request.form.get('farm_name', '').strip()
+                    user.farm_description = request.form.get('farm_description', '').strip()
+                    user.farm_location = request.form.get('farm_location', '').strip()
+                    user.farm_phone = request.form.get('farm_phone', '').strip()
+                
+                # Handle password change
+                current_password = request.form.get('current_password', '')
+                new_password = request.form.get('new_password', '')
+                confirm_password = request.form.get('confirm_password', '')
+                
+                if new_password:
+                    if not current_password:
+                        flash('Please enter your current password to change password', 'error')
+                        return _render_profile()
+                    
+                    if not user.check_password(current_password):
+                        flash('Current password is incorrect', 'error')
+                        return _render_profile()
+                    
+                    if new_password != confirm_password:
+                        flash('New passwords do not match', 'error')
+                        return _render_profile()
+                    
+                    if len(new_password) < 6:
+                        flash('Password must be at least 6 characters long', 'error')
+                        return _render_profile()
+                    
+                    user.set_password(new_password)
+                
+                # Save updated user
+                user.save(db)
+
+                # Persist shipping details directly in MongoDB
+                try:
+                    db.users.update_one(
+                        {'email': current_user.email},
+                        {
+                            '$set': {
+                                'shipping_name': user.shipping_name,
+                                'shipping_phone': user.shipping_phone,
+                                'overall_location': user.overall_location,
+                                'shipping_address': user.shipping_address,
+                                'updated_at': datetime.utcnow()
+                            }
+                        }
+                    )
+                except Exception as e:
+                    print(f"Shipping info save error: {e}")
+                flash('Profile updated successfully!', 'success')
+                return redirect(url_for('profile'))
+                
+        except Exception as e:
+            flash(f'Profile update failed: {str(e)}', 'error')
+    
+    return _render_profile()
+
+@app.route('/orders')
+@login_required
+def orders():
+    orders_list = []
+    try:
+        from models import Order, Product, User as MEUser
+        from bson import ObjectId
+        me_user = ensure_mongoengine_user(current_user)
+        if me_user and isinstance(me_user, MEUser) and ObjectId.is_valid(str(me_user.id)):
+            orders_list = list(Order.objects(user=me_user).order_by('-created_at'))
+    except Exception as e:
+        print(f"Orders load error: {e}")
+
+    # Load PyMongo orders
+    try:
+        db, _ = get_mongodb_db()
+        if db is not None:
+            pymongo_orders = list(db.orders.find({'user_id': current_user.id}).sort('created_at', -1))
+            orders_list = list(orders_list) + pymongo_orders
+    except Exception as e:
+        print(f"PyMongo orders load error: {e}")
+
+    return render_template('orders.html', orders=orders_list)
+
+@app.route('/checkout', methods=['GET', 'POST'])
+@login_required
+def checkout():
+    """Create an order from cart and clear the cart (PyMongo-backed)."""
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            flash('Database connection failed. Please try again.', 'error')
+            return redirect(url_for('cart'))
+
+        cart_doc = db.carts.find_one({'user_id': current_user.id})
+        if not cart_doc or not cart_doc.get('items'):
+            flash('Your cart is empty.', 'warning')
+            return redirect(url_for('cart'))
+
+        if request.method == 'GET':
+            return redirect(url_for('cart'))
+
+        shipping_name = request.form.get('shipping_name', '').strip()
+        shipping_phone = request.form.get('shipping_phone', '').strip()
+        shipping_address = request.form.get('shipping_address', '').strip()
+        payment_method = request.form.get('payment_method', '').strip()
+
+        # Use user's registration data for name and phone if not provided in form
+        if not shipping_name:
+            user_doc = db.users.find_one({'email': current_user.email})
+            if user_doc:
+                shipping_name = f"{user_doc.get('first_name', '')} {user_doc.get('last_name', '')}".strip()
+        
+        if not shipping_phone:
+            if 'user_doc' not in locals():
+                user_doc = db.users.find_one({'email': current_user.email})
+            if user_doc:
+                shipping_phone = user_doc.get('phone', '')
+
+        if not all([shipping_name, shipping_phone, shipping_address, payment_method]):
+            flash('Please fill out all shipping details and payment method.', 'error')
+            return redirect(url_for('cart'))
+
+        # Save shipping details to user profile (only address)
+        try:
+            db.users.update_one(
+                {'email': current_user.email},
+                {
+                    '$set': {
+                        'shipping_address': shipping_address,
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+        except Exception as e:
+            print(f"Shipping info save error: {e}")
+
+        order_items = []
+        total_amount = 0
+
+        for item in cart_doc['items']:
+            product_id = item.get('product_id')
+            qty = int(item.get('quantity', 1))
+
+            product_data = None
+            try:
+                from bson import ObjectId
+                product_data = db.products.find_one({'_id': ObjectId(product_id)})
+            except Exception:
+                product_data = db.products.find_one({'id': product_id})
+
+            if not product_data:
+                continue
+
+            price = float(product_data.get('price', 0) or 0)
+            unit = product_data.get('unit', '')
+            name = product_data.get('name', 'Product')
+
+            order_items.append({
+                'product_id': str(product_data.get('_id', product_id)),
+                'name': name,
+                'quantity': qty,
+                'price': price,
+                'unit': unit
+            })
+            total_amount += price * qty
+
+            # Update product stock
+            try:
+                db.products.update_one(
+                    {'_id': product_data.get('_id')},
+                    {'$inc': {'quantity': -qty}}
+                )
+            except Exception:
+                pass
+
+        if not order_items:
+            flash('Unable to place order. Please try again.', 'error')
+            return redirect(url_for('cart'))
+
+        order_result = db.orders.insert_one({
+            'user_id': current_user.id,
+            'items': order_items,
+            'total_amount': total_amount,
+            'status': 'pending',
+            'shipping_name': shipping_name,
+            'shipping_phone': shipping_phone,
+            'shipping_address': shipping_address,
+            'payment_method': payment_method,
+            'created_at': datetime.utcnow(),
+            'updated_at': datetime.utcnow()
+        })
+
+        try:
+            order_id_value = str(order_result.inserted_id)
+            receipt_pdf = generate_receipt_pdf(
+                order_id_value,
+                shipping_name,
+                current_user.email,
+                order_items,
+                total_amount
+            )
+            email_body = (
+                f"Hello {shipping_name},\n\n"
+                "Your order has been confirmed and is pending seller approval.\n"
+                f"Order ID: {order_id_value}\n\n"
+                "We will notify you once the seller approves your order.\n\n"
+                "Thank you for shopping with FarmtoClick."
+            )
+            email_html = build_email_html(
+                title="Order Confirmed",
+                subtitle="Your order is pending seller approval",
+                badge_text="PENDING APPROVAL",
+                content_html=(
+                    f"<p>Hi {shipping_name},</p>"
+                    "<p>Your order has been confirmed and is pending seller approval.</p>"
+                    f"<div style=\"background:#f3f4f6; padding:12px 14px; border-radius:10px;\">"
+                    f"<strong>Order ID:</strong> {order_id_value}</div>"
+                    "<p style=\"margin-top:12px;\">We will email you again once the seller approves your order.</p>"
+                    "<p>Thank you for shopping with FarmtoClick.</p>"
+                )
+            )
+            send_system_email(
+                current_user.email,
+                "FarmtoClick Order Confirmed - Pending Approval",
+                email_body,
+                html_body=email_html,
+                attachments=[{
+                    'filename': f"FarmtoClick-Receipt-{order_id_value}.pdf",
+                    'content': receipt_pdf,
+                    'maintype': 'application',
+                    'subtype': 'pdf'
+                }]
+            )
+        except Exception as e:
+            print(f"Order confirmation email error: {e}")
+
+        db.carts.delete_one({'_id': cart_doc['_id']})
+
+        flash('Order placed successfully!', 'success')
+        return redirect(url_for('orders'))
+    except Exception as e:
+        print(f"Checkout error: {e}")
+        flash('Checkout failed. Please try again.', 'error')
+        return redirect(url_for('cart'))
+
+@app.route('/order/<order_id>/status', methods=['POST'])
+@login_required
+def update_order_status(order_id):
+    """Update order status (seller approval) and notify buyer."""
+    if not getattr(current_user, 'is_farmer', False):
+        return jsonify({'success': False, 'message': 'Not authorized'}), 403
+
+    new_status = request.form.get('status', '').strip().lower()
+    status_reason = request.form.get('reason', '').strip()
+    if new_status not in ['approved', 'rejected', 'confirmed']:
+        return jsonify({'success': False, 'message': 'Invalid status'}), 400
+    if new_status == 'rejected' and not status_reason:
+        return jsonify({'success': False, 'message': 'Rejection reason is required'}), 400
+
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'success': False, 'message': 'Database connection failed'}), 500
+
+        from bson import ObjectId
+        order_doc = None
+        if ObjectId.is_valid(order_id):
+            order_doc = db.orders.find_one({'_id': ObjectId(order_id)})
+        if not order_doc:
+            return jsonify({'success': False, 'message': 'Order not found'}), 404
+
+        update_fields = {'status': new_status, 'updated_at': datetime.utcnow()}
+        if new_status == 'rejected':
+            update_fields['rejection_reason'] = status_reason
+        db.orders.update_one({'_id': order_doc['_id']}, {'$set': update_fields})
+
+        buyer = db.users.find_one({'id': order_doc.get('user_id')})
+        buyer_email = buyer.get('email') if buyer else None
+        buyer_name = buyer.get('first_name') if buyer else 'Customer'
+
+        if buyer_email:
+            status_body = (
+                f"Hello {buyer_name},\n\n"
+                f"Your order status has been updated to: {new_status.upper()}.\n"
+                f"Order ID: {order_id}\n"
+                + (f"Reason: {status_reason}\n" if new_status == 'rejected' and status_reason else "")
+                + "\n"
+                "Thank you for shopping with FarmtoClick."
+            )
+            status_badge = new_status.upper()
+            reason_html = ""
+            if new_status == 'rejected' and status_reason:
+                reason_html = f"<p><strong>Reason:</strong> {status_reason}</p>"
+
+            status_html = build_email_html(
+                title="Order Status अपडेट",
+                subtitle="Your order status has been updated",
+                badge_text=status_badge,
+                content_html=(
+                    f"<p>Hi {buyer_name},</p>"
+                    f"<p>Your order status is now <strong>{status_badge}</strong>.</p>"
+                    f"<div style=\"background:#f3f4f6; padding:12px 14px; border-radius:10px;\">"
+                    f"<strong>Order ID:</strong> {order_id}</div>"
+                    f"{reason_html}"
+                    "<p style=\"margin-top:12px;\">Thank you for shopping with FarmtoClick.</p>"
+                )
+            )
+            send_system_email(buyer_email, "FarmtoClick Order Status Update", status_body, html_body=status_html)
+
+        return jsonify({'success': True, 'status': new_status})
+    except Exception as e:
+        print(f"Order status update error: {e}")
+        return jsonify({'success': False, 'message': 'Failed to update order'}), 500
+
+@app.route('/manage-products', methods=['GET', 'POST'])
+@login_required
+def manage_products():
+    """Manage products page (add, edit, delete)."""
+    if not getattr(current_user, 'is_farmer', False):
+        flash('Activate your seller account to manage products.', 'info')
+        return redirect('/profile')
+
+    if request.method == 'POST':
+        try:
+            from user_model import User
+            name = request.form.get('name', '').strip()
+            description = request.form.get('description', '').strip()
+            category = request.form.get('category', '').strip()
+            unit = request.form.get('unit', '').strip()
+
+            price_raw = request.form.get('price', '').strip()
+            quantity_raw = request.form.get('quantity', '').strip()
+            available = request.form.get('available') in ('on', 'true', '1', 'yes')
+
+            if not name or not description or not category or not unit:
+                flash('Name, description, category, and unit are required.', 'error')
+                return redirect('/manage-products')
+
+            try:
+                price = float(price_raw)
+            except Exception:
+                flash('Price must be a number.', 'error')
+                return redirect('/manage-products')
+
+            try:
+                quantity = int(quantity_raw)
+            except Exception:
+                flash('Quantity must be a whole number.', 'error')
+                return redirect('/manage-products')
+
+            if price <= 0:
+                flash('Price must be greater than 0.', 'error')
+                return redirect('/manage-products')
+
+            if quantity < 0:
+                flash('Quantity cannot be negative.', 'error')
+                return redirect('/manage-products')
+
+            # Optional image upload
+            image_file = request.files.get('image')
+            image_url = None
+            if image_file and image_file.filename:
+                if not allowed_file(image_file.filename):
+                    flash('Invalid product image type. Please upload a JPG, PNG, or GIF.', 'error')
+                    return redirect('/manage-products')
+
+                image_file.seek(0, os.SEEK_END)
+                file_size = image_file.tell()
+                image_file.seek(0)
+                if file_size > MAX_FILE_SIZE:
+                    flash('Product image is too large (max 5 MB).', 'error')
+                    return redirect('/manage-products')
+
+                original = secure_filename(image_file.filename)
+                unique_name = f"{uuid.uuid4().hex}_{original}"
+                product_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'products')
+                os.makedirs(product_folder, exist_ok=True)
+                save_path = os.path.join(product_folder, unique_name)
+                image_file.save(save_path)
+                image_url = url_for('static', filename=f'uploads/products/{unique_name}')
+
+            # Ensure we have a MongoEngine User document for reference
+            from models import Product
+            me_farmer = ensure_mongoengine_user(current_user)
+            if not me_farmer:
+                flash('Unable to load your farmer profile. Please re-login.', 'error')
+                return redirect('/manage-products')
+
+            # Skip MongoEngine ReferenceField validation - save directly to MongoDB
+            # because me_farmer has a UUID ID which is not a valid ObjectId
+            from pymongo import MongoClient
+            db, _ = get_mongodb_db()
+            if db is None:
+                raise Exception("Database connection failed")
+            
+            # Insert directly into MongoDB with string reference to avoid ObjectId validation
+            product_doc = {
+                'name': name,
+                'description': description,
+                'price': price,
+                'quantity': quantity,
+                'unit': unit,
+                'category': category,
+                'available': available,
+                'image_url': image_url,
+                'farmer': str(me_farmer.id),  # MongoEngine user id (string)
+                'farmer_user_id': str(current_user.id),
+                'farmer_email': current_user.email,
+                'created_at': datetime.utcnow()
+            }
+            result = db.products.insert_one(product_doc)
+            print(f"✅ Product saved successfully: {result.inserted_id}")
+            
+            flash('Product added successfully!', 'success')
+            return redirect('/manage-products')
+        except Exception as e:
+            import traceback
+            print(f"Add product error: {e}")
+            traceback.print_exc()
+            flash('Failed to add product. Please try again.', 'error')
+            return redirect('/manage-products')
+
+    try:
+        from models import Product
+        me_farmer = ensure_mongoengine_user(current_user)
+        if not me_farmer:
+            flash('Unable to load your farmer profile. Please re-login.', 'error')
+            return redirect('/profile')
+
+        # Get products for current farmer - query by farmer ID string
+        db, _ = get_mongodb_db()
+        if db is not None:
+            # Query products where farmer matches current user's ID (as string)
+            farmer_id_str = str(current_user.id)  # Get PyMongo user's UUID
+            products_cursor = db.products.find({'farmer': farmer_id_str}).sort('created_at', -1)
+            my_products = list(products_cursor)
+            for prod in my_products:
+                prod['_id'] = str(prod.get('_id'))
+                prod['id'] = prod.get('id') or prod['_id']
+            print(f"✅ Found {len(my_products)} products for farmer {farmer_id_str}")
+        else:
+            my_products = []
+        
+        return render_template('manage_products.html', products=my_products)
+    except Exception as e:
+        print(f"Manage products error: {e}")
+        import traceback
+        traceback.print_exc()
+        return render_template('manage_products.html', products=[])
+
+@app.route('/manage-products/<product_id>/edit', methods=['POST'])
+@login_required
+def edit_manage_product(product_id):
+    if not getattr(current_user, 'is_farmer', False):
+        flash('Activate your seller account to manage products.', 'info')
+        return redirect('/profile')
+
+    try:
+        name = request.form.get('name', '').strip()
+        description = request.form.get('description', '').strip()
+        category = request.form.get('category', '').strip()
+        unit = request.form.get('unit', '').strip()
+
+        price_raw = request.form.get('price', '').strip()
+        quantity_raw = request.form.get('quantity', '').strip()
+        available = request.form.get('available') in ('on', 'true', '1', 'yes')
+
+        if not name or not description or not category or not unit:
+            flash('Name, description, category, and unit are required.', 'error')
+            return redirect('/manage-products')
+
+        try:
+            price = float(price_raw)
+        except Exception:
+            flash('Price must be a number.', 'error')
+            return redirect('/manage-products')
+
+        try:
+            quantity = int(quantity_raw)
+        except Exception:
+            flash('Quantity must be a whole number.', 'error')
+            return redirect('/manage-products')
+
+        if price <= 0:
+            flash('Price must be greater than 0.', 'error')
+            return redirect('/manage-products')
+
+        if quantity < 0:
+            flash('Quantity cannot be negative.', 'error')
+            return redirect('/manage-products')
+
+        db, _ = get_mongodb_db()
+        if db is None:
+            flash('Database connection failed.', 'error')
+            return redirect('/manage-products')
+
+        from bson import ObjectId
+        farmer_id_str = str(current_user.id)
+        query = {'farmer': farmer_id_str}
+        if ObjectId.is_valid(product_id):
+            query['_id'] = ObjectId(product_id)
+        else:
+            query['id'] = product_id
+
+        product_doc = db.products.find_one(query)
+        if not product_doc:
+            flash('Product not found or not authorized.', 'error')
+            return redirect('/manage-products')
+
+        update_doc = {
+            'name': name,
+            'description': description,
+            'category': category,
+            'unit': unit,
+            'price': price,
+            'quantity': quantity,
+            'available': available,
+            'updated_at': datetime.utcnow()
+        }
+
+        image_file = request.files.get('image')
+        if image_file and image_file.filename:
+            if not allowed_file(image_file.filename):
+                flash('Invalid product image type. Please upload a JPG, PNG, or GIF.', 'error')
+                return redirect('/manage-products')
+
+            image_file.seek(0, os.SEEK_END)
+            file_size = image_file.tell()
+            image_file.seek(0)
+            if file_size > MAX_FILE_SIZE:
+                flash('Product image is too large (max 5 MB).', 'error')
+                return redirect('/manage-products')
+
+            original = secure_filename(image_file.filename)
+            unique_name = f"{uuid.uuid4().hex}_{original}"
+            product_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads', 'products')
+            os.makedirs(product_folder, exist_ok=True)
+            save_path = os.path.join(product_folder, unique_name)
+            image_file.save(save_path)
+            update_doc['image_url'] = url_for('static', filename=f'uploads/products/{unique_name}')
+
+        db.products.update_one(query, {'$set': update_doc})
+
+        flash('Product updated successfully!', 'success')
+        return redirect('/manage-products')
+    except Exception as e:
+        print(f"Edit product error: {e}")
+        import traceback
+        traceback.print_exc()
+        flash('Failed to update product. Please try again.', 'error')
+        return redirect('/manage-products')
+
+@app.route('/farmer-dashboard', methods=['GET'])
+@login_required
+def farmer_dashboard():
+    """Farmer dashboard - view shop and statistics."""
+    print(f"\n{'='*60}")
+    print(f"🔍 FARMER DASHBOARD ACCESS ATTEMPT")
+    print(f"{'='*60}")
+    print(f"Current user email: {current_user.email}")
+    print(f"Current user is_farmer: {getattr(current_user, 'is_farmer', False)}")
+    print(f"Current user type: {type(current_user).__name__}")
+    
+    if not getattr(current_user, 'is_farmer', False):
+        print(f"❌ User is not marked as farmer (is_farmer=False)")
+        flash('Activate your seller account to access My Shop.', 'info')
+        return redirect('/profile')
+
+    try:
+        from models import Product
+        
+        print(f"📝 Calling ensure_mongoengine_user()...")
+        me_farmer = ensure_mongoengine_user(current_user)
+        
+        print(f"Result: {me_farmer}")
+        if me_farmer:
+            print(f"✅ Got MongoEngine user: {me_farmer.email}")
+        else:
+            print(f"❌ ensure_mongoengine_user returned None")
+        
+        if not me_farmer:
+            print(f"⚠️  Could not get MongoEngine user for {getattr(current_user, 'email', 'unknown')}. Continuing with PyMongo profile.")
+
+        # Get products for current farmer - query by both PyMongo user id and MongoEngine id
+        print(f"🔍 Searching for products for farmer: {current_user.id}")
+        try:
+            db, _ = get_mongodb_db()
+            if db is not None:
+                farmer_id_candidates = {str(current_user.id), str(current_user.email)}
+                farmer_object_ids = []
+                if me_farmer and getattr(me_farmer, 'id', None):
+                    farmer_id_candidates.add(str(me_farmer.id))
+                    try:
+                        from bson import ObjectId
+                        if ObjectId.is_valid(str(me_farmer.id)):
+                            farmer_object_ids.append(ObjectId(str(me_farmer.id)))
+                    except Exception:
+                        pass
+
+                user_doc = db.users.find_one({'email': current_user.email})
+                if user_doc and user_doc.get('_id'):
+                    farmer_object_ids.append(user_doc.get('_id'))
+                if user_doc and user_doc.get('id'):
+                    farmer_id_candidates.add(str(user_doc.get('id')))
+
+                print(f"📦 Querying db.products.find({{'$or': [{{'farmer': {{'$in': {list(farmer_id_candidates)} }} }}, {{'farmer_user_id': '{str(current_user.id)}'}}, {{'farmer_email': '{current_user.email}'}}]}})")
+                or_filters = [
+                    {'farmer': {'$in': list(farmer_id_candidates)}},
+                    {'farmer_user_id': str(current_user.id)},
+                    {'farmer_email': current_user.email},
+                    {'farmer_id': str(current_user.id)},
+                    {'farmerId': str(current_user.id)},
+                    {'seller_id': str(current_user.id)},
+                    {'sellerId': str(current_user.id)},
+                    {'farmer.id': str(current_user.id)},
+                    {'farmer.email': current_user.email}
+                ]
+                if user_doc and user_doc.get('_id'):
+                    or_filters.append({'farmer._id': user_doc.get('_id')})
+                if farmer_object_ids:
+                    or_filters.append({'farmer': {'$in': farmer_object_ids}})
+
+                products_cursor = db.products.find({'$or': or_filters}).sort('created_at', -1)
+                my_products = list(products_cursor)
+                if not my_products:
+                    # Fallback: filter in memory for odd historical data shapes
+                    fallback_products = list(db.products.find().sort('created_at', -1))
+                    def _matches_farmer(prod):
+                        farmer_val = prod.get('farmer')
+                        if str(farmer_val) in farmer_id_candidates:
+                            return True
+                        if farmer_val in farmer_object_ids:
+                            return True
+                        if isinstance(farmer_val, dict):
+                            if str(farmer_val.get('id')) in farmer_id_candidates:
+                                return True
+                            if farmer_val.get('email') == current_user.email:
+                                return True
+                            if farmer_val.get('_id') in farmer_object_ids:
+                                return True
+                        if prod.get('farmer_user_id') == str(current_user.id):
+                            return True
+                        if prod.get('farmer_email') == current_user.email:
+                            return True
+                        if prod.get('farmer_id') == str(current_user.id):
+                            return True
+                        if prod.get('farmerId') == str(current_user.id):
+                            return True
+                        if prod.get('seller_id') == str(current_user.id):
+                            return True
+                        if prod.get('sellerId') == str(current_user.id):
+                            return True
+                        return False
+                    my_products = [p for p in fallback_products if _matches_farmer(p)]
+                # Convert ObjectId to string for JSON serialization
+                for prod in my_products:
+                    prod['_id'] = str(prod['_id'])
+                products_count = len(my_products)
+                print(f"✅ Found {products_count} products")
+                for prod in my_products:
+                    print(f"   - {prod.get('name')} (farmer ID: {prod.get('farmer')})")
+            else:
+                my_products = []
+                print(f"⚠️  Database connection failed")
+        except Exception as prod_error:
+            print(f"⚠️  Product query failed: {prod_error}")
+            import traceback
+            traceback.print_exc()
+            my_products = []
+        
+        # Build seller orders list
+        seller_orders = []
+        try:
+            db, _ = get_mongodb_db()
+            if db is not None:
+                farmer_id_str = str(current_user.id)
+                product_cache = {}
+
+                def _get_product(prod_id):
+                    if prod_id in product_cache:
+                        return product_cache[prod_id]
+                    product_doc = None
+                    try:
+                        from bson import ObjectId
+                        if ObjectId.is_valid(str(prod_id)):
+                            product_doc = db.products.find_one({'_id': ObjectId(str(prod_id))})
+                    except Exception:
+                        product_doc = None
+                    if not product_doc:
+                        product_doc = db.products.find_one({'id': str(prod_id)})
+                    product_cache[prod_id] = product_doc
+                    return product_doc
+
+                orders_cursor = db.orders.find().sort('created_at', -1)
+                for order_doc in orders_cursor:
+                    order_items = []
+                    for item in order_doc.get('items', []):
+                        prod_id = item.get('product_id')
+                        product_doc = _get_product(prod_id)
+                        if not product_doc:
+                            continue
+                        if product_doc.get('farmer') != farmer_id_str and product_doc.get('farmer_user_id') != farmer_id_str:
+                            continue
+                        order_items.append({
+                            'name': item.get('name', product_doc.get('name', 'Product')),
+                            'quantity': item.get('quantity', 1),
+                            'price': item.get('price', product_doc.get('price', 0))
+                        })
+
+                    if order_items:
+                        buyer = db.users.find_one({'id': order_doc.get('user_id')})
+                        seller_orders.append({
+                            'id': str(order_doc.get('_id')),
+                            'status': order_doc.get('status', 'pending'),
+                            'created_at': order_doc.get('created_at'),
+                            'buyer_name': (buyer.get('first_name') if buyer else 'Customer'),
+                            'buyer_email': (buyer.get('email') if buyer else ''),
+                            'items': order_items
+                        })
+        except Exception as order_error:
+            print(f"Seller orders load error: {order_error}")
+
+        return render_template('farmer_dashboard.html', products=my_products, seller_orders=seller_orders)
+    except Exception as e:
+        import traceback
+        print(f"❌ Farmer dashboard error: {e}")
+        traceback.print_exc()
+        return render_template('farmer_dashboard.html', products=[], seller_orders=[])
+    finally:
+        print(f"{'='*60}\n")
+
+@app.route('/products/<product_id>', methods=['DELETE'])
+@login_required
+def delete_product(product_id):
+    """Delete a product."""
+    if not getattr(current_user, 'is_farmer', False):
+        return {'error': 'Unauthorized'}, 403
+
+    try:
+        from models import Product
+        me_farmer = ensure_mongoengine_user(current_user)
+        if not me_farmer:
+            return {'error': 'Unable to load farmer profile'}, 500
+
+        # Find product belonging to current user
+        product = Product.objects(id=product_id, farmer=me_farmer).first()
+        
+        if not product:
+            return {'error': 'Product not found or unauthorized'}, 404
+
+        # Delete the product
+        product.delete()
+        
+        return {'success': True}, 200
+    except Exception as e:
+        print(f"Delete product error: {e}")
+        return {'error': 'Failed to delete product'}, 500
+
+@app.route('/auth/logout')
+@login_required
+def logout():
+    from flask_login import logout_user
+    user_name = current_user.first_name
+    logout_user()
+    flash(f'Goodbye, {user_name}!', 'info')
+    return redirect('/')
+
+@app.route('/health')
+def health_check():
+    try:
+        db, client = get_mongodb_db()
+        if db is not None:
+            # Test connection by pinging
+            db.command('ping')
+            return {"status": "healthy", "database": "connected"}, 200
+        else:
+            return {"status": "unhealthy", "database": "disconnected"}, 503
+    except Exception as e:
+        return {"status": "unhealthy", "error": str(e)}, 503
+
+# ============================================
+# ERROR HANDLERS
+# ============================================
+
+@app.errorhandler(404)
+def not_found(e):
+    return "<h1>404 Not Found</h1>", 404
+
+@app.errorhandler(500)
+def server_error(e):
+    return "<h1>500 Server Error</h1>", 500
+
+@app.route('/admin/permit-dashboard')
+@login_required
+def permit_dashboard():
+    """Admin dashboard for reviewing permit verifications"""
+    try:
+        from user_model import User
+        db, client = get_mongodb_db()
+        
+        if db is None:
+            flash('Database connection failed.', 'error')
+            return redirect('/')
+        
+        # Get all users with verification attempts
+        users_collection = db['user']
+        all_users = list(users_collection.find({'business_verification_ml': {'$exists': True}}))
+        
+        verified_count = users_collection.count_documents({'business_verification_status': 'verified'})
+        rejected_count = users_collection.count_documents({'business_verification_status': 'rejected'})
+        pending_count = len(all_users) - verified_count - rejected_count
+        
+        # Format for display
+        verifications = []
+        for user in all_users:
+            ml_result = user.get('business_verification_ml', {})
+            verifications.append({
+                'id': str(user.get('_id')),
+                'farmer_name': f"{user.get('first_name', '')} {user.get('last_name', '')}".strip(),
+                'farm_name': user.get('farm_name', 'N/A'),
+                'email': user.get('email', 'N/A'),
+                'valid': ml_result.get('valid', False),
+                'rejected': user.get('business_verification_status') == 'rejected',
+                'confidence': ml_result.get('confidence', 0),
+                'timestamp': ml_result.get('timestamp', 'N/A'),
+                'extracted_text': ml_result.get('extracted_text', '')[:100],
+                'quality_check': ml_result.get('quality_check', {}),
+                'document_detection': ml_result.get('document_detection', {}),
+                'permit_validation': ml_result.get('permit_validation', {})
+            })
+        
+        return render_template('permit_verification_dashboard.html',
+                             verifications=verifications,
+                             verified_count=verified_count,
+                             rejected_count=rejected_count,
+                             pending_count=pending_count,
+                             total_submissions=len(all_users))
+    
+    except Exception as e:
+        print(f"Dashboard error: {e}")
+        flash('Error loading dashboard', 'danger')
+        return redirect('/')
+
+@app.route('/admin/permit-details/<user_id>')
+@login_required
+def get_permit_details(user_id):
+    """Get detailed verification results for a specific permit"""
+    try:
+        from user_model import User
+        db, client = get_mongodb_db()
+        
+        if db is None:
+            return {'error': 'Database connection failed'}, 500
+        
+        users_collection = db['user']
+        user = users_collection.find_one({'_id': user_id})
+        
+        if not user:
+            return {'error': 'User not found'}, 404
+        
+        ml_result = user.get('business_verification_ml', {})
+        
+        return {
+            'farmer_name': f"{user.get('first_name', '')} {user.get('last_name', '')}".strip(),
+            'farm_name': user.get('farm_name', 'N/A'),
+            'email': user.get('email', 'N/A'),
+            'phone': user.get('phone', 'N/A'),
+            'status': user.get('business_verification_status', 'pending'),
+            'confidence': ml_result.get('confidence', 0),
+            'extracted_text': ml_result.get('extracted_text', ''),
+            'quality_check': ml_result.get('quality_check', {}),
+            'document_detection': ml_result.get('document_detection', {}),
+            'permit_validation': ml_result.get('permit_validation', {}),
+            'timestamp': ml_result.get('timestamp', ''),
+            'full_result': ml_result
+        }
+    
+    except Exception as e:
+        return {'error': str(e)}, 500
+
+@app.route('/debug/database-status', methods=['GET'])
+@login_required
+def debug_database_status():
+    """DEBUG ENDPOINT - Check MongoDB connection and data"""
+    try:
+        from models import User as MEUser, Product
+        
+        print("\n" + "="*80)
+        print("🔍 DATABASE STATUS CHECK")
+        print("="*80)
+        
+        # Check MongoEngine connection
+        try:
+            all_users = MEUser.objects().count()
+            print(f"✅ MongoEngine connected - Total users: {all_users}")
+        except Exception as e:
+            print(f"❌ MongoEngine error: {e}")
+            return {'error': f"MongoEngine error: {e}"}, 500
+        
+        # Check PyMongo connection
+        try:
+            db, client = get_mongodb_db()
+            if db:
+                pymongo_users_count = db.users.count_documents({})
+                print(f"✅ PyMongo connected - Total PyMongo users: {pymongo_users_count}")
+            else:
+                print(f"❌ PyMongo connection failed")
+        except Exception as e:
+            print(f"❌ PyMongo error: {e}")
+        
+        # Look for current user
+        user_email = current_user.email
+        print(f"\n📧 Searching for user: {user_email}")
+        
+        # Check in PyMongo
+        try:
+            pymongo_doc = db.users.find_one({'email': user_email})
+            if pymongo_doc:
+                print(f"✅ Found in PyMongo:")
+                print(f"   - ID: {pymongo_doc.get('_id')}")
+                print(f"   - Email: {pymongo_doc.get('email')}")
+                print(f"   - is_farmer: {pymongo_doc.get('is_farmer')}")
+                print(f"   - first_name: {pymongo_doc.get('first_name')}")
+            else:
+                print(f"❌ NOT found in PyMongo")
+        except Exception as e:
+            print(f"❌ PyMongo lookup error: {e}")
+        
+        # Check in MongoEngine
+        try:
+            me_user = MEUser.objects(email=user_email).first()
+            if me_user:
+                print(f"✅ Found in MongoEngine:")
+                print(f"   - ID: {me_user.id}")
+                print(f"   - Email: {me_user.email}")
+                print(f"   - is_farmer: {me_user.is_farmer}")
+                print(f"   - first_name: {me_user.first_name}")
+            else:
+                print(f"❌ NOT found in MongoEngine")
+        except Exception as e:
+            print(f"❌ MongoEngine lookup error: {e}")
+        
+        # Check Products collection
+        try:
+            products_count = Product.objects().count()
+            print(f"\n📦 Products collection:")
+            print(f"   - Total products: {products_count}")
+        except Exception as e:
+            print(f"❌ Products collection error: {e}")
+        
+        # Try to manually create MongoEngine user
+        print(f"\n🧪 Testing user creation...")
+        try:
+            result = ensure_mongoengine_user(current_user)
+            if result:
+                print(f"✅ User creation/sync successful")
+            else:
+                print(f"❌ User creation/sync returned None")
+        except Exception as e:
+            print(f"❌ User creation/sync error: {e}")
+        
+        print("="*80 + "\n")
+        
+        return {
+            'status': 'ok',
+            'message': 'Check console output above for details'
+        }
+    except Exception as e:
+        import traceback
+        return {
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }, 500
+
+@app.route('/api/geocode', methods=['POST'])
+def geocode():
+    """Reverse geocode GPS coordinates to get address details"""
+    try:
+        import requests
+        
+        data = request.get_json()
+        lat = data.get('lat')
+        lon = data.get('lon')
+        
+        if not lat or not lon:
+            return {'error': 'Missing coordinates'}, 400
+        
+        # Call OpenStreetMap Nominatim API from backend (no CORS issues)
+        response = requests.get(
+            f'https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1',
+            headers={'Accept': 'application/json', 'User-Agent': 'FarmtoClick/1.0'},
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {'error': 'Geocoding failed'}, response.status_code
+            
+    except requests.exceptions.Timeout:
+        return {'error': 'Request timed out'}, 504
+    except Exception as e:
+        print(f"Geocoding error: {e}")
+        return {'error': str(e)}, 500
+
+@app.route('/debug/user-info', methods=['GET'])
+@login_required
+def debug_user_info():
+    """DEBUG ENDPOINT - Shows detailed user information"""
+    try:
+        from models import User as MEUser, Product
+        from user_model import User as PyMongoUser
+        
+        user_email = current_user.email
+        user_is_farmer = getattr(current_user, 'is_farmer', False)
+        user_type = type(current_user).__name__
+        
+        # Try to get MongoEngine user
+        me_user = ensure_mongoengine_user(current_user)
+        
+        # Check both databases
+        db, _ = get_mongodb_db()
+        pymongo_user = db.users.find_one({'email': user_email}) if db else None
+        mongoengine_user = MEUser.objects(email=user_email).first()
+        
+        products = []
+        if me_user:
+            products = list(Product.objects(farmer=me_user))
+        
+        return {
+            'current_user': {
+                'email': user_email,
+                'type': user_type,
+                'is_farmer': user_is_farmer,
+                'authenticated': current_user.is_authenticated,
+            },
+            'mongoengine_user': {
+                'found': mongoengine_user is not None,
+                'email': mongoengine_user.email if mongoengine_user else None,
+                'is_farmer': mongoengine_user.is_farmer if mongoengine_user else None,
+                'id': str(mongoengine_user.id) if mongoengine_user else None,
+            },
+            'pymongo_user': {
+                'found': pymongo_user is not None,
+                'email': pymongo_user.get('email') if pymongo_user else None,
+                'is_farmer': pymongo_user.get('is_farmer') if pymongo_user else None,
+            },
+            'ensure_mongoengine_user_result': {
+                'found': me_user is not None,
+                'email': me_user.email if me_user else None,
+                'is_farmer': me_user.is_farmer if me_user else None,
+                'id': str(me_user.id) if me_user else None,
+            },
+            'products_count': len(products),
+            'products': [{'name': p.name, 'id': str(p.id)} for p in products],
+        }
+    except Exception as e:
+        import traceback
+        return {
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }, 500
+
+# ==================== API ROUTES FOR MOBILE APP ====================
+
+def token_required(f):
+    """Decorator to check for valid JWT token"""
+    def decorated(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'error': 'Token is missing'}), 401
+        
+        try:
+            # Remove 'Bearer ' prefix if present
+            if token.startswith('Bearer '):
+                token = token[7:]
+            data = jwt.decode(token, app.config['JWT_SECRET_KEY'], algorithms=['HS256'])
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token has expired'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        # Add user info to request
+        request.user_id = data['user_id']
+        request.user_email = data['email']
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    """API endpoint for user login"""
+    try:
+        data = request.get_json()
+        if not data or not data.get('email') or not data.get('password'):
+            return jsonify({'error': 'Email and password are required'}), 400
+
+        from user_model import User
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        user = User.get_by_email(db, data['email'])
+        if user and user.check_password(data['password']):
+            token = jwt.encode({
+                'user_id': str(user.id),
+                'email': user.email,
+                'exp': datetime.utcnow() + app.config['JWT_ACCESS_TOKEN_EXPIRE']
+            }, app.config['JWT_SECRET_KEY'], algorithm='HS256')
+            
+            return jsonify({
+                'token': token,
+                'user': {
+                    'id': str(user.id),
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'is_farmer': user.is_farmer,
+                    'profile_picture': user.profile_picture
+                }
+            })
+        
+        return jsonify({'error': 'Invalid credentials'}), 401
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/register', methods=['POST'])
+def api_register():
+    """API endpoint for user registration"""
+    try:
+        data = request.get_json()
+        required_fields = ['email', 'password', 'first_name', 'last_name']
+        
+        if not all(field in data for field in required_fields):
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        from user_model import User
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Check if user already exists
+        existing_user = User.get_by_email(db, data['email'])
+        if existing_user:
+            return jsonify({'error': 'User already exists'}), 409
+
+        # Create new user
+        user = User(
+            email=data['email'],
+            first_name=data['first_name'],
+            last_name=data['last_name'],
+            phone=data.get('phone', ''),
+            is_farmer=data.get('is_farmer', False)
+        )
+        user.set_password(data['password'])
+        user.save(db)
+
+        # Generate token
+        token = jwt.encode({
+            'user_id': str(user.id),
+            'email': user.email,
+            'exp': datetime.utcnow() + app.config['JWT_ACCESS_TOKEN_EXPIRE']
+        }, app.config['JWT_SECRET_KEY'], algorithm='HS256')
+
+        return jsonify({
+            'token': token,
+            'user': {
+                'id': str(user.id),
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'is_farmer': user.is_farmer,
+                'profile_picture': user.profile_picture
+            }
+        }), 201
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def get_products():
+    """Get all available products"""
+    db, _ = get_mongodb_db()
+    if db is None:
+        return []
+    
+    products_cursor = db.products.find({'available': True}).sort('created_at', -1)
+    products_list = list(products_cursor)
+    
+    # Convert ObjectId to string
+    for prod in products_list:
+        prod['_id'] = str(prod['_id'])
+        prod['id'] = prod.get('id') or prod['_id']
+    
+    return products_list
+
+@app.route('/api/products', methods=['GET'])
+def api_products():
+    """API endpoint to get all products"""
+    try:
+        products = get_products()
+        return jsonify([{
+            'id': str(product.get('_id', '')),
+            'name': product.get('name', ''),
+            'description': product.get('description', ''),
+            'price': product.get('price', 0),
+            'image': product.get('image', ''),
+            'farmer_name': product.get('farmer_name', ''),
+            'category': product.get('category', ''),
+            'quantity': product.get('quantity', 0),
+            'unit': product.get('unit', ''),
+            'location': product.get('location', '')
+        } for product in products])
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/products/<product_id>', methods=['GET'])
+def api_product_detail(product_id):
+    """API endpoint to get product details"""
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        product = db.products.find_one({'_id': ObjectId(product_id)})
+        if not product:
+            return jsonify({'error': 'Product not found'}), 404
+
+        return jsonify({
+            'id': str(product['_id']),
+            'name': product.get('name', ''),
+            'description': product.get('description', ''),
+            'price': product.get('price', 0),
+            'image': product.get('image', ''),
+            'farmer_name': product.get('farmer_name', ''),
+            'category': product.get('category', ''),
+            'quantity': product.get('quantity', 0),
+            'unit': product.get('unit', ''),
+            'location': product.get('location', ''),
+            'farmer_id': str(product.get('farmer_id', ''))
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/profile', methods=['GET'], endpoint='api_user_profile')
+@token_required
+def api_user_profile():
+    """API endpoint to get user profile"""
+    try:
+        from user_model import User
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        user = User.get_by_email(db, request.user_email)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        return jsonify({
+            'id': str(user.id),
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'phone': user.phone,
+            'is_farmer': user.is_farmer,
+            'profile_picture': user.profile_picture,
+            'farm_name': getattr(user, 'farm_name', ''),
+            'farm_location': getattr(user, 'farm_location', ''),
+            'overall_location': getattr(user, 'overall_location', ''),
+            'shipping_address': getattr(user, 'shipping_address', '')
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/user/profile', methods=['PUT'], endpoint='api_update_profile')
+@token_required
+def api_update_profile():
+    """API endpoint to update user profile (supports JSON and multipart/form-data)"""
+    try:
+        from user_model import User
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        user = User.get_by_email(db, request.user_email)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        # Support both JSON and multipart/form-data
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            data = request.form.to_dict()
+        else:
+            data = request.get_json() or {}
+
+        # Update user fields
+        if 'first_name' in data:
+            user.first_name = data['first_name']
+        if 'last_name' in data:
+            user.last_name = data['last_name']
+        if 'phone' in data:
+            user.phone = data['phone']
+        if 'overall_location' in data:
+            user.overall_location = data['overall_location']
+        if 'shipping_address' in data:
+            user.shipping_address = data['shipping_address']
+
+        # Farmer fields
+        if getattr(user, 'is_farmer', False):
+            if 'farm_name' in data:
+                user.farm_name = data['farm_name']
+            if 'farm_phone' in data:
+                user.farm_phone = data['farm_phone']
+            if 'farm_location' in data:
+                user.farm_location = data['farm_location']
+            if 'farm_description' in data:
+                user.farm_description = data['farm_description']
+
+        # Handle profile picture upload
+        remove_picture = data.get('remove_profile_picture') == '1'
+        profile_picture = request.files.get('profile_picture')
+
+        if remove_picture:
+            if hasattr(user, 'profile_picture') and user.profile_picture:
+                old_file_path = os.path.join(UPLOAD_FOLDER, user.profile_picture)
+                if os.path.exists(old_file_path):
+                    os.remove(old_file_path)
+                user.profile_picture = None
+        elif profile_picture and profile_picture.filename:
+            if allowed_file(profile_picture.filename):
+                profile_picture.seek(0, os.SEEK_END)
+                file_size = profile_picture.tell()
+                profile_picture.seek(0)
+
+                if file_size > MAX_FILE_SIZE:
+                    return jsonify({'error': 'Profile picture must be less than 5MB'}), 400
+
+                filename = secure_filename(profile_picture.filename)
+                unique_filename = f"{uuid.uuid4().hex}_{filename}"
+                file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+                profile_picture.save(file_path)
+
+                if hasattr(user, 'profile_picture') and user.profile_picture:
+                    old_file_path = os.path.join(UPLOAD_FOLDER, user.profile_picture)
+                    if os.path.exists(old_file_path):
+                        os.remove(old_file_path)
+
+                user.profile_picture = unique_filename
+            else:
+                return jsonify({'error': 'Invalid file type. Use JPG, PNG, GIF, or WebP.'}), 400
+
+        # Handle password change
+        current_password = data.get('current_password', '')
+        new_password = data.get('new_password', '')
+        if new_password:
+            if not current_password:
+                return jsonify({'error': 'Current password is required'}), 400
+            if not user.check_password(current_password):
+                return jsonify({'error': 'Current password is incorrect'}), 400
+            if len(new_password) < 6:
+                return jsonify({'error': 'Password must be at least 6 characters'}), 400
+            user.set_password(new_password)
+
+        user.save(db)
+
+        # Return updated user data so the frontend can refresh state
+        return jsonify({
+            'message': 'Profile updated successfully',
+            'user': {
+                'id': str(user._id) if hasattr(user, '_id') else user.email,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'phone': getattr(user, 'phone', ''),
+                'is_farmer': getattr(user, 'is_farmer', False),
+                'profile_picture': getattr(user, 'profile_picture', None),
+                'overall_location': getattr(user, 'overall_location', ''),
+                'shipping_address': getattr(user, 'shipping_address', ''),
+                'farm_name': getattr(user, 'farm_name', ''),
+                'farm_phone': getattr(user, 'farm_phone', ''),
+                'farm_location': getattr(user, 'farm_location', ''),
+                'farm_description': getattr(user, 'farm_description', ''),
+            }
+        })
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/farmers', methods=['GET'])
+def api_farmers():
+    """API endpoint to get all farmers"""
+    try:
+        db, _ = get_mongodb_db()
+        if db is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        farmers = list(db.users.find({'is_farmer': True}))
+        return jsonify([{
+            'id': str(farmer['_id']),
+            'first_name': farmer.get('first_name', ''),
+            'last_name': farmer.get('last_name', ''),
+            'farm_name': farmer.get('farm_name', ''),
+            'farm_location': farmer.get('farm_location', ''),
+            'profile_picture': farmer.get('profile_picture', ''),
+            'phone': farmer.get('phone', '')
+        } for farmer in farmers])
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== END API ROUTES ====================
+
+# Start the Flask app
+if __name__ == '__main__':
+    print("🚀 Starting FarmtoClick...")
+    print("🌐 Starting Flask server on http://127.0.0.1:5001")
+    print("📋 Debug user info at: http://127.0.0.1:5001/debug/user-info")
+    app.run(debug=True, host='0.0.0.0', port=5001, use_reloader=True)

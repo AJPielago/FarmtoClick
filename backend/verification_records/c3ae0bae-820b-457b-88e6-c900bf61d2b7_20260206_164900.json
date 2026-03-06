@@ -1,0 +1,32 @@
+{
+  "valid": false,
+  "confidence": 0.6747299999999999,
+  "quality_check": {
+    "passed": true,
+    "message": "Image quality OK"
+  },
+  "ml_prediction": {
+    "available": true,
+    "is_permit": true,
+    "confidence": 0.9639,
+    "label": "authentic"
+  },
+  "qr_scan": {
+    "passed": false,
+    "message": "No QR code detected. Please ensure the QR code on your DTI Business Permit is clearly visible and not obstructed.",
+    "method": ""
+  },
+  "qr_data": null,
+  "dti_url_valid": false,
+  "dti_validation": null,
+  "business_info": null,
+  "name_verification": null,
+  "extracted_text": "",
+  "timestamp": "2026-02-06T16:48:59.965350",
+  "file_path": "C:\\Projects-BSIT\\farmtoclick-main\\project\\backend\\static\\uploads\\verifications\\permit_57c2e88d3c01468c9e961f2d26345d6d_valid_3.jpg",
+  "permit_validation": {
+    "passed": false,
+    "message": "No QR code detected, but ML classifier identifies this as a business permit (confidence: 96%). Submitted for manual review \u2014 please ensure the QR code is visible.",
+    "pending_manual_review": true
+  }
+}

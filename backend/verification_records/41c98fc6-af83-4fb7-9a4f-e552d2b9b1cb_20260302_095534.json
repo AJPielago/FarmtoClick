@@ -1,0 +1,81 @@
+{
+  "valid": false,
+  "confidence": 0.7,
+  "quality_check": {
+    "passed": true,
+    "message": "Image quality OK"
+  },
+  "ml_prediction": {
+    "available": true,
+    "is_permit": true,
+    "confidence": 1.0,
+    "label": "authentic"
+  },
+  "qr_scan": {
+    "passed": true,
+    "message": "QR decoded (original)",
+    "method": "original"
+  },
+  "qr_data": "https://qrs.ly/79ha8fa",
+  "dti_url_valid": false,
+  "dti_validation": {
+    "url_checked": "https://qrs.ly/79ha8fa",
+    "reachable": true,
+    "dti_confirmed": true,
+    "business_name": "MHEL FX NEXUS STORE",
+    "owner_name": "MINORI LAPPAY HANASATO",
+    "registration_number": "630464142",
+    "validity_date": "20 February 2023 - 20 February 2028",
+    "scope": "REGIONAL - NCR - NATIONAL CAPITAL REGION",
+    "status": null,
+    "redirect_chain": [
+      {
+        "url": "https://qrs.ly/79ha8fa",
+        "status": 302,
+        "domain": "qrs.ly"
+      },
+      {
+        "url": "https://sites.google.com/view/mhel-fx-nexus-store/home",
+        "status": 200,
+        "domain": "sites.google.com"
+      }
+    ],
+    "final_url": "https://sites.google.com/view/mhel-fx-nexus-store/home",
+    "message": "DTI registration confirmed.",
+    "http_status": 200
+  },
+  "business_info": {
+    "url": "https://qrs.ly/79ha8fa",
+    "path_segments": [
+      "79ha8fa"
+    ]
+  },
+  "name_verification": {
+    "business_name_match": false,
+    "owner_name_match": false,
+    "business_name_similarity": 0.118,
+    "owner_name_similarity": 0.182,
+    "overall_match": false,
+    "score": 0.15,
+    "details": "Business name MISMATCH (12%): you entered 'haha' but DTI shows 'MHEL FX NEXUS STORE'. Owner name MISMATCH (18%): you entered 'alex joyous' but DTI shows 'MINORI LAPPAY HANASATO'. "
+  },
+  "text_verification": {
+    "business_name_match": false,
+    "business_owner_match": false,
+    "validity_date_match": false,
+    "business_number_match": false,
+    "scope_match": false,
+    "details": "",
+    "mismatches": [],
+    "confidence": 0.0
+  },
+  "extracted_text": "https://qrs.ly/79ha8fa",
+  "timestamp": "2026-03-02T09:55:31.190834",
+  "file_path": "C:\\Projects-BSIT\\farmtoclick6-master\\backend\\static\\uploads\\verifications\\permit_d52c013b1b6d4926b8625d93d2fc5731_7.png",
+  "permit_validation": {
+    "passed": false,
+    "message": "QR code page is valid, but the names you provided do not match the registration records. Business name MISMATCH (12%): you entered 'haha' but DTI shows 'MHEL FX NEXUS STORE'. Owner name MISMATCH (18%): you entered 'alex joyous' but DTI shows 'MINORI LAPPAY HANASATO'. Please ensure you entered the exact names from your permit.",
+    "name_mismatch": true
+  },
+  "qr_url_type": "external_url"
+}

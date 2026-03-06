@@ -1,0 +1,11 @@
+node_modules/
+.venv/
+.expo/
+__pycache__/
+*.pyc
+.env
+*.log
+train_output.log
+dist/
+build/
+web-build/

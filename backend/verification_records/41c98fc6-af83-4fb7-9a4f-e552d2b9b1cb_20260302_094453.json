@@ -1,0 +1,51 @@
+{
+  "valid": false,
+  "confidence": 0.0,
+  "quality_check": {
+    "passed": true,
+    "message": "Image quality OK"
+  },
+  "ml_prediction": {
+    "available": true,
+    "is_permit": false,
+    "confidence": 1.0,
+    "label": "non_permit"
+  },
+  "qr_scan": {
+    "passed": true,
+    "message": "QR decoded (ocr-fallback)",
+    "method": "ocr-fallback"
+  },
+  "qr_data": "\u2014\u2014 3\n\nEIVAA @O\n\n000-\u00a35.\nALBBA JUMAR JA ATIUH: %\nAMARIG0IJAG JOVAI OVA\n\nAIVAHDS HOHL MORDA ATHAD.\n[BSH A THIS AIHATAJ9O] Done. t FAT |\nPetres-regi]\n\nOROIEI TAIN NAAM OIAZOH JIG] O1OOES- (AUT =<\n\nee [Sia 4OJAD YIAIEMIA AICI S | onor-ce taut] te]\n}\u2014e-rie6| wate] a /ANa3] \u2014_GaASAaM STAN ISTE Tae az\ne-Teay M38]\n\nAM ATA TATED JIMA 6GOr-ee TACIT]\n[31am | \u201cARRAVAH AL NOMAR OD eISHARA AL MOMAR OS2ISMAnal rartes.Taut] ar]\n}__etiaa| are] STancray]\n\nLieot-eernsrl\u2014arl\n| wate sia \u201coan sero gue MIT\n[-\u2014r8t66) sno [aTRAvAo wahtian sadhana eer\n[\u2014ra-tiael nar\n{Mares aa] FAORASJ ISAAR ECUER\nFFE asst \u2014 pai eta en so\nBOMMAD WY HID RUMZIA FIAT IA,\n[sins] nares SA\n\n",
+  "dti_url_valid": false,
+  "dti_validation": null,
+  "business_info": null,
+  "name_verification": {
+    "business_name_match": null,
+    "owner_name_match": null,
+    "business_name_similarity": 0.0,
+    "owner_name_similarity": 0.0,
+    "overall_match": true,
+    "score": 0.5,
+    "details": "Could not extract business name from DTI for comparison. Could not extract owner name from DTI for comparison. No DTI name data available for cross-check. "
+  },
+  "text_verification": {
+    "business_name_match": false,
+    "business_owner_match": false,
+    "validity_date_match": false,
+    "business_number_match": false,
+    "scope_match": false,
+    "details": "",
+    "mismatches": [],
+    "confidence": 0.0
+  },
+  "extracted_text": "\u2014\u2014 3\n\nEIVAA @O\n\n000-\u00a35.\nALBBA JUMAR JA ATIUH: %\nAMARIG0IJAG JOVAI OVA\n\nAIVAHDS HOHL MORDA ATHAD.\n[BSH A THIS AIHATAJ9O] Done. t FAT |\nPetres-regi]\n\nOROIEI TAIN NAAM OIAZOH JIG] O1OOES- (AUT =<\n\nee [Sia 4OJAD YIAIEMIA AICI S | onor-ce taut] te]\n}\u2014e-rie6| wate] a /ANa3] \u2014_GaASAaM STAN ISTE Tae az\ne-Teay M38]\n\nAM ATA TATED JIMA 6GOr-ee TACIT]\n[31am | \u201cARRAVAH AL NOMAR OD eISHARA AL MOMAR OS2ISMAnal rartes.Taut] ar]\n}__etiaa| are] STancray]\n\nLieot-eernsrl\u2014arl\n| wate sia \u201coan sero gue MIT\n[-\u2014r8t66) sno [aTRAvAo wahtian sadhana eer\n[\u2014ra-tiael nar\n{Mares aa] FAORASJ ISAAR ECUER\nFFE asst \u2014 pai eta en so\nBOMMAD WY HID RUMZIA FIAT IA,\n[sins] nares SA\n\n",
+  "timestamp": "2026-03-02T09:44:48.212783",
+  "file_path": "C:\\Projects-BSIT\\farmtoclick6-master\\backend\\static\\uploads\\verifications\\permit_5570a83064d044179843e354eb485fe4_business_permit.jpg",
+  "permit_validation": {
+    "passed": false,
+    "message": "QR code business information does not match the permit. Please verify the QR code is from a valid permit. Confidence: 0%",
+    "mismatches": []
+  },
+  "qr_url_type": "text_data"
+}

@@ -1,0 +1,23 @@
+{
+  "valid": false,
+  "confidence": 0.0,
+  "quality_check": {
+    "passed": false,
+    "message": "Image brightness is poor (243). Ensure good lighting when photographing the permit."
+  },
+  "ml_prediction": null,
+  "qr_scan": null,
+  "qr_data": null,
+  "dti_url_valid": false,
+  "dti_validation": null,
+  "business_info": null,
+  "name_verification": null,
+  "text_verification": null,
+  "extracted_text": "",
+  "timestamp": "2026-03-02T09:45:48.667204",
+  "file_path": "C:\\Projects-BSIT\\farmtoclick6-master\\backend\\static\\uploads\\verifications\\permit_3e5c09e0714543a382d227fdf86c764f_7.png",
+  "permit_validation": {
+    "passed": false,
+    "message": "Image brightness is poor (243). Ensure good lighting when photographing the permit."
+  }
+}

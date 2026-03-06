@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Business Verification - FarmtoClick</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <h2><a href="{{ url_for('landing') }}" style="text-decoration: none; color: inherit;"><i class="fas fa-seedling"></i> FarmtoClick</a></h2>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="{{ url_for('landing') }}">Home</a></li>
+                <li><a href="{{ url_for('products.products') }}">Products</a></li>
+                <li><a href="{{ url_for('farmers.farmers') }}" class="active">Farmers</a></li>
+                <li><a href="#contact">Contact</a></li>
+                {% if current_user.is_authenticated and current_user.is_farmer %}
+                    <li><a href="{{ url_for('farmers.farmer_dashboard') }}">My Shop</a></li>
+                {% endif %}
+            </ul>
+            <div class="nav-actions">
+                {% if current_user.is_authenticated %}
+                    <div class="user-profile-dropdown">
+                        <button class="user-profile-btn" onclick="toggleProfileDropdown()">
+                            <div class="user-avatar">
+                                {% if current_user.profile_picture %}
+                                <img src="{{ url_for('static', filename='uploads/profiles/' + current_user.profile_picture) }}" alt="{{ current_user.first_name }}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-block';">
+                                <i class="fas fa-user" style="display: none;"></i>
+                                {% else %}
+                                <i class="fas fa-user"></i>
+                                {% endif %}
+                            </div>
+                            <span>{{ current_user.first_name }}</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <div class="profile-dropdown" id="profileDropdown">
+                            <a href="/profile" class="dropdown-item">
+                                <i class="fas fa-user-edit"></i> Edit Profile
+                            </a>
+                            <a href="/orders" class="dropdown-item">
+                                <i class="fas fa-shopping-bag"></i> My Orders
+                            </a>
+                            <div class="dropdown-divider"></div>
+                            <a href="/auth/logout" class="dropdown-item logout">
+                                <i class="fas fa-sign-out-alt"></i> Logout
+                            </a>
+                        </div>
+                    </div>
+                {% else %}
+                    <a href="/auth/login" class="btn btn-outline">Login</a>
+                    <a href="/auth/register" class="btn btn-primary">Sign Up</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <section class="page-header">
+        <div class="container">
+            <h1>{% if current_user.is_farmer %}Business Verification{% else %}Apply as Farmer{% endif %}</h1>
+            <p>{% if current_user.is_farmer %}Submit a photo of your DTI Business Permit. We verify the QR code against the official DTI BNRS system.{% else %}Submit your farm details and a photo of your DTI permit. We scan the QR code to verify your business registration.{% endif %}</p>
+        </div>
+    </section>
+
+    <section class="farmers-page">
+        <div class="container">
+            <div class="profile-form-container">
+                <div class="form-section">
+                    {% if current_user.business_verification_status %}
+                        <p class="section-description">
+                            Current status: <strong>{{ current_user.business_verification_status|title }}</strong>
+                        </p>
+                    {% endif %}
+
+                    {% if current_user.farmer_application_status and not current_user.is_farmer %}
+                        <p class="section-description">
+                            Application status: <strong>{{ current_user.farmer_application_status|title }}</strong>
+                        </p>
+                    {% endif %}
+
+                    <div class="form-grid">
+                        <div class="form-group full-width">
+                            <form method="POST" action="{{ url_for('farmers.farmer_verify') }}" enctype="multipart/form-data">
+                                    {% if not current_user.is_farmer %}
+                                    <div class="form-grid" style="margin-bottom: 12px;">
+                                        <div class="form-group">
+                                            <label for="farm_name">Farm Name</label>
+                                            <input type="text" id="farm_name" name="farm_name" value="{{ current_user.farm_name }}" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="farm_phone">Farm Phone</label>
+                                            <input type="text" id="farm_phone" name="farm_phone" value="{{ current_user.farm_phone }}" required>
+                                        </div>
+                                        <div class="form-group full-width">
+                                            <label for="farm_location">Farm Location (City/Area)</label>
+                                            <div style="display: flex; gap: 8px; align-items: flex-end;">
+                                                <input type="text" id="farm_location" name="farm_location" value="{{ current_user.farm_location }}" readonly required style="flex: 1; background-color: #f5f5f5;">
+                                                <button type="button" class="btn btn-outline" onclick="getLocationFromGPS()" style="white-space: nowrap; padding: 8px 12px; height: fit-content;" title="Get your GPS location">
+                                                    <i class="fas fa-map-marker-alt"></i> Use GPS
+                                                </button>
+                                            </div>
+                                            <small style="color: #666; margin-top: 4px; display: block;">
+                                                ✓ <strong>GPS coordinates are accurate</strong> • Location name is approximate based on GPS - please verify and adjust if needed
+                                            </small>
+                                        </div>
+                                        <div class="form-group full-width">
+                                            <label for="exact_address">Exact Farm Address</label>
+                                            <input type="text" id="exact_address" name="exact_address" placeholder="e.g., 123 Farm Road, Barangay San Jose, Municipality" value="{{ current_user.exact_address or '' }}" required style="width: 100%;">
+                                            <small style="color: #666; margin-top: 4px; display: block;">Street address, barangay, and municipality details - <strong>This is the most important field</strong></small>
+                                        </div>
+                                        <div class="form-group full-width">
+                                            <label for="farm_description">Farm Description</label>
+                                            <textarea id="farm_description" name="farm_description" rows="4" required>{{ current_user.farm_description }}</textarea>
+                                        </div>
+                                    </div>
+                                    {% endif %}
+
+                                    <!-- SECTION: PERMIT NAME VERIFICATION -->
+                                    <div style="border-top: 2px solid #e0e0e0; padding-top: 20px; margin-bottom: 20px;">
+                                        <h3 style="margin-bottom: 15px;">
+                                            <i class="fas fa-id-card" style="color: #2c7a2c; margin-right: 8px;"></i>
+                                            Permit Details &mdash; Name Verification
+                                        </h3>
+                                        <div style="background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+                                            <p style="color: #2e7d32; margin: 0; font-size: 0.92em;">
+                                                <i class="fas fa-info-circle"></i>
+                                                <strong>Enter the names exactly as they appear on your DTI Business Permit.</strong>
+                                                We cross-check these against DTI records to verify ownership.
+                                            </p>
+                                        </div>
+                                        <div class="form-grid" style="margin-bottom: 12px;">
+                                            <div class="form-group">
+                                                <label for="permit_business_name">
+                                                    <i class="fas fa-store" style="margin-right: 4px;"></i>
+                                                    Business Name (on DTI Permit)
+                                                </label>
+                                                <input type="text" id="permit_business_name" name="permit_business_name"
+                                                       placeholder="e.g., Juan's Fresh Farm Products"
+                                                       value="{{ current_user.permit_business_name or '' }}" required>
+                                                <small style="color: #666; margin-top: 4px; display: block;">
+                                                    The registered business name shown on your DTI certificate
+                                                </small>
+                                            </div>
+                                            <div class="form-group">
+                                                <label for="permit_owner_name">
+                                                    <i class="fas fa-user-tie" style="margin-right: 4px;"></i>
+                                                    Owner / Proprietor Name (on DTI Permit)
+                                                </label>
+                                                <input type="text" id="permit_owner_name" name="permit_owner_name"
+                                                       placeholder="e.g., Juan Dela Cruz"
+                                                       value="{{ current_user.permit_owner_name or (current_user.first_name ~ ' ' ~ current_user.last_name) }}" required>
+                                                <small style="color: #666; margin-top: 4px; display: block;">
+                                                    The owner/proprietor name on the permit &mdash; must match your account name
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- SECTION: BUSINESS PERMIT QR CODE VERIFICATION -->
+                                    <div style="border-top: 2px solid #e0e0e0; padding-top: 20px; margin-bottom: 15px;">
+                                        <h3 style="margin-bottom: 15px;">
+                                            <i class="fas fa-qrcode" style="color: #2c7a2c; margin-right: 8px;"></i>
+                                            DTI Business Permit — QR Code Verification (Required)
+                                        </h3>
+                                        <div style="background: #f0faf0; border: 1px solid #b8dbb8; border-radius: 10px; padding: 16px; margin-bottom: 18px;">
+                                            <p style="color: #2c5f2c; margin: 0 0 10px 0; font-weight: 600;">
+                                                <i class="fas fa-info-circle"></i> How QR Verification Works
+                                            </p>
+                                            <ol style="color: #444; margin: 0; padding-left: 20px; line-height: 1.8;">
+                                                <li>Take a <strong>clear photo</strong> of your DTI Business Permit certificate.</li>
+                                                <li>Make sure the <strong>QR code</strong> on the permit is clearly visible and not blurred.</li>
+                                                <li>Our system will <strong>scan the QR code</strong> and extract the business information from it.</li>
+                                                <li>The QR code information will be <strong>cross-checked</strong> with the permit details and your provided information.</li>
+                                                <li>If everything matches, you will be <strong>instantly verified</strong> as a farmer.</li>
+                                            </ol>
+                                        </div>
+                                        <div style="background: #fff8e1; border: 1px solid #ffe082; border-radius: 10px; padding: 12px; margin-bottom: 18px;">
+                                            <p style="color: #8d6e00; margin: 0; font-size: 0.92em;">
+                                                <i class="fas fa-lightbulb"></i>
+                                                <strong>Tips for best results:</strong>
+                                                Place the permit on a flat surface with good lighting. Ensure the QR code fills a good portion of the image. Avoid glare, shadows, and creases over the QR code.
+                                            </p>
+                                        </div>
+                                        <div style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 15px;">
+                                            <video id="permitPhotoVideo" autoplay muted playsinline style="width: 100%; max-width: 520px; border-radius: 12px; background: #111; display: none; -webkit-transform: scaleX(-1); transform: scaleX(-1);"></video>
+                                            <canvas id="permitPhotoCanvas" style="display: none;"></canvas>
+                                            <img id="permitPhotoPreview" alt="Permit/ID Preview" style="width: 100%; max-width: 520px; border-radius: 12px; border: 2px dashed #d9534f; display: none;">
+                                            <div id="permitPhotoPlaceholder" style="width: 100%; max-width: 520px; height: 300px; border: 2px dashed #ccc; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: #f9f9f9; flex-direction: column; gap: 8px;">
+                                                <i class="fas fa-qrcode" style="font-size: 48px; color: #bbb;"></i>
+                                                <span style="color: #999;">Upload a photo of your DTI permit showing the QR code</span>
+                                            </div>
+                                        </div>
+                                        <input type="file" id="permitPhotoFile" name="business_permit_photo" accept="image/*" capture="environment" style="display:none;">
+                                        <div style="display:flex; gap: 8px; flex-wrap: wrap;">
+                                            <button type="button" class="btn btn-outline" onclick="startPermitPhotoCamera()">
+                                                <i class="fas fa-camera"></i> Open Camera
+                                            </button>
+                                            <button type="button" class="btn btn-outline" onclick="capturePermitPhoto()" id="capturePermitPhotoBtn" style="display:none;">
+                                                <i class="fas fa-camera-retro"></i> Capture Photo
+                                            </button>
+                                            <button type="button" class="btn btn-outline" onclick="triggerPermitPhotoFile()">
+                                                <i class="fas fa-file-upload"></i> Upload Photo
+                                            </button>
+                                            <button type="button" class="btn btn-danger" onclick="clearPermitPhoto()" id="clearPermitPhotoBtn" style="display:none;">
+                                                <i class="fas fa-times"></i> Clear
+                                            </button>
+                                        </div>
+                                        <small style="color: #666; margin-top: 8px; display: block;">
+                                            <i class="fas fa-qrcode"></i> Ensure the QR code is visible and unobstructed. Max 5MB.
+                                        </small>
+                                    </div>
+                                    <div style="display:flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; border-top: 2px solid #e0e0e0; padding-top: 20px;">
+                                        <button type="submit" class="btn btn-primary" onclick="return validateImages()">
+                                            <i class="fas fa-check"></i> Submit Verification
+                                        </button>
+                                        <a href="{{ url_for('farmers.farmers') }}" class="btn btn-outline">Back</a>
+                                    </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {% include 'partials/footer.html' %}
+
+    <script>
+        function toggleProfileDropdown() {
+            const dropdown = document.getElementById('profileDropdown');
+            if (dropdown) {
+                dropdown.classList.toggle('show');
+            }
+        }
+
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('profileDropdown');
+            const button = document.querySelector('.user-profile-btn');
+
+            if (dropdown && button && !button.contains(event.target) && !dropdown.contains(event.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+
+        let verifyStream = null;
+        let permitPhotoStream = null;
+
+        // ===== BUSINESS PERMIT/ID PHOTO FUNCTIONS =====
+        async function startPermitPhotoCamera() {
+            const video = document.getElementById('permitPhotoVideo');
+            const btn = document.getElementById('capturePermitPhotoBtn');
+            if (!video) return;
+
+            try {
+                if (permitPhotoStream) {
+                    permitPhotoStream.getTracks().forEach(t => t.stop());
+                    permitPhotoStream = null;
+                }
+
+                const constraints = {
+                    audio: false,
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+                
+                permitPhotoStream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = permitPhotoStream;
+                video.style.display = 'block';
+                btn.style.display = 'inline-block';
+                document.getElementById('permitPhotoPlaceholder').style.display = 'none';
+            } catch (e) {
+                console.error('Camera error:', e);
+                alert('Camera access failed. Please use Upload Photo instead.');
+            }
+        }
+
+        function capturePermitPhoto() {
+            const video = document.getElementById('permitPhotoVideo');
+            const canvas = document.getElementById('permitPhotoCanvas');
+            const preview = document.getElementById('permitPhotoPreview');
+            const fileInput = document.getElementById('permitPhotoFile');
+            const btn = document.getElementById('capturePermitPhotoBtn');
+            const clearBtn = document.getElementById('clearPermitPhotoBtn');
+
+            if (!video || !canvas || !preview || !fileInput) return;
+            if (!permitPhotoStream) {
+                alert('Please open the camera first.');
+                return;
+            }
+
+            const w = video.videoWidth;
+            const h = video.videoHeight;
+            if (!w || !h) {
+                alert('Camera not ready yet. Try again.');
+                return;
+            }
+
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            // Flip the canvas to match the video orientation (undo the CSS flip)
+            ctx.translate(w, 0);
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, 0, 0, w, h);
+
+            canvas.toBlob(function(blob) {
+                if (!blob) return;
+
+                const url = URL.createObjectURL(blob);
+                preview.src = url;
+                preview.style.display = 'block';
+                video.style.display = 'none';
+                document.getElementById('permitPhotoPlaceholder').style.display = 'none';
+
+                const file = new File([blob], 'business_permit.jpg', { type: 'image/jpeg' });
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                fileInput.files = dt.files;
+
+                if (permitPhotoStream) {
+                    permitPhotoStream.getTracks().forEach(t => t.stop());
+                    permitPhotoStream = null;
+                }
+                
+                btn.style.display = 'none';
+                clearBtn.style.display = 'inline-block';
+                alert('Business permit photo captured! Review the image above.');
+            }, 'image/jpeg', 0.92);
+        }
+
+        function triggerPermitPhotoFile() {
+            document.getElementById('permitPhotoFile').click();
+            document.getElementById('permitPhotoFile').onchange = function() {
+                const preview = document.getElementById('permitPhotoPreview');
+                const video = document.getElementById('permitPhotoVideo');
+                const file = this.files && this.files[0];
+                const clearBtn = document.getElementById('clearPermitPhotoBtn');
+                
+                if (file && preview) {
+                    preview.src = URL.createObjectURL(file);
+                    preview.style.display = 'block';
+                    video.style.display = 'none';
+                    document.getElementById('permitPhotoPlaceholder').style.display = 'none';
+                    clearBtn.style.display = 'inline-block';
+                    
+                    if (permitPhotoStream) {
+                        permitPhotoStream.getTracks().forEach(t => t.stop());
+                        permitPhotoStream = null;
+                    }
+                }
+            };
+        }
+
+        function clearPermitPhoto() {
+            document.getElementById('permitPhotoFile').value = '';
+            document.getElementById('permitPhotoPreview').style.display = 'none';
+            document.getElementById('permitPhotoVideo').style.display = 'none';
+            document.getElementById('permitPhotoPlaceholder').style.display = 'flex';
+            document.getElementById('capturePermitPhotoBtn').style.display = 'none';
+            document.getElementById('clearPermitPhotoBtn').style.display = 'none';
+            
+            if (permitPhotoStream) {
+                permitPhotoStream.getTracks().forEach(t => t.stop());
+                permitPhotoStream = null;
+            }
+        }
+
+        // Validate permit photo before submission
+        function validateImages() {
+            const permitPhotoFile = document.getElementById('permitPhotoFile').files;
+
+            if (!permitPhotoFile || permitPhotoFile.length === 0) {
+                alert('Please capture or upload a business permit/ID photo.');
+                return false;
+            }
+
+            return true;
+        }
+
+        async function getLocationFromGPS() {
+            const locationInput = document.getElementById('farm_location');
+            const button = event.target.closest('button');
+            const originalText = button.innerHTML;
+
+            if (!navigator.geolocation) {
+                alert('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Getting location...';
+
+            try {
+                navigator.geolocation.getCurrentPosition(
+                    async function(position) {
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        const accuracy = Math.round(position.coords.accuracy);
+
+                        try {
+                            // Try Geoapify first (free, no API key, better coverage)
+                            const response1 = await fetch(
+                                `https://api.geoapify.com/v1/geocode/reverse?lat=${lat}&lon=${lon}&format=json`,
+                                {
+                                    headers: {
+                                        'Accept': 'application/json'
+                                    }
+                                }
+                            );
+
+                            let location = null;
+
+                            if (response1.ok) {
+                                const data1 = await response1.json();
+                                console.log('Geoapify response:', data1);
+                                
+                                if (data1.results && data1.results.length > 0) {
+                                    const result = data1.results[0];
+                                    let locationParts = [];
+                                    
+                                    // Build address from most specific to least specific
+                                    if (result.address_line2) locationParts.push(result.address_line2); // barangay/neighborhood
+                                    if (result.city) locationParts.push(result.city);
+                                    if (result.state) locationParts.push(result.state);
+                                    if (result.country && result.country !== 'Philippines') {
+                                        locationParts.push(result.country);
+                                    }
+                                    
+                                    location = locationParts.filter(part => part && part.trim()).join(', ');
+                                }
+                            }
+
+                            // Fallback: Try ArcGIS if Geoapify didn't work
+                            if (!location) {
+                                try {
+                                    const response2 = await fetch(
+                                        `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/reverseGeocode?location=${lon},${lat}&f=json`,
+                                        {
+                                            headers: {
+                                                'Accept': 'application/json'
+                                            }
+                                        }
+                                    );
+
+                                    if (response2.ok) {
+                                        const data2 = await response2.json();
+                                        console.log('ArcGIS response:', data2);
+                                        
+                                        if (data2.address) {
+                                            const addr = data2.address;
+                                            let locationParts = [];
+                                            
+                                            if (addr.Neighborhood) locationParts.push(addr.Neighborhood);
+                                            if (addr.City) locationParts.push(addr.City);
+                                            if (addr.District) locationParts.push(addr.District);
+                                            if (addr.Region) locationParts.push(addr.Region);
+                                            
+                                            location = locationParts.filter(part => part && part.trim()).join(', ');
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.log('ArcGIS fallback failed:', e);
+                                }
+                            }
+
+                            // Final fallback: show coordinates
+                            if (!location || !location.trim()) {
+                                location = `Coordinates: ${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+                            } else {
+                                location += ` (${lat.toFixed(6)}, ${lon.toFixed(6)})`;
+                            }
+
+                            locationInput.value = location + ` [${accuracy}m accuracy]`;
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        } catch (geocodeError) {
+                            console.error('Geocoding error:', geocodeError);
+                            // Fallback: use coordinates with helpful message
+                            locationInput.value = `Coordinates: ${lat.toFixed(6)}, ${lon.toFixed(6)} [${accuracy}m accuracy]`;
+                            alert('GPS coordinates obtained successfully! Please fill in the "Exact Farm Address" field with your barangay, municipality, and street details.');
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        }
+                    },
+                    function(error) {
+                        let errorMsg = 'Unable to get your location. ';
+                        switch(error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMsg += 'Please allow location access in your browser settings.';
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMsg += 'Location information is unavailable.';
+                                break;
+                            case error.TIMEOUT:
+                                errorMsg += 'Location request timed out.';
+                                break;
+                        }
+                        alert(errorMsg);
+                        button.innerHTML = originalText;
+                        button.disabled = false;
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 15000,
+                        maximumAge: 0
+                    }
+                );
+            } catch (err) {
+                console.error('Error:', err);
+                alert('An error occurred while getting your location.');
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+    </script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+instance/
+training_data/
+ml_models/*.pkl
+static/uploads/

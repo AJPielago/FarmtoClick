@@ -1,0 +1,41 @@
+{
+  "valid": false,
+  "confidence": 0.2,
+  "quality_check": {
+    "passed": true,
+    "message": "Image quality OK"
+  },
+  "ml_prediction": {
+    "available": true,
+    "is_permit": true,
+    "confidence": 0.9639,
+    "label": "authentic"
+  },
+  "qr_scan": {
+    "passed": true,
+    "message": "QR decoded (ocr-fallback)",
+    "method": "ocr-fallback"
+  },
+  "qr_data": "Then cartifiwe [hat\nCHRISTIAN WATER REFILLING STATION\n\nATARI ALITY\nCITY OF TABU HER COURTH DI TIOC GR NATIONAL CAPITAL RCH\n18 8 Dalene NaroR regiitarad in this office purauant to the pfrngeme of Ac 3882 ag amervied\ney Act 4147 and Reputhe Act in AA andin complianga nth inn apoleatie rutes ard\n\ntaguistions prescribed ty tha Uapartment of Trade and induatey\nTie certhcate weed ty\n\nJEFFREY VILLAR BERNABE\n\n+6 valid from 12 January 2027 to 12 January 2027 subyest fo continuing Wot Gate\nwilt the above mentioned laws and all applicable lava of the Prinppene: urieyy\nvoluntanty cancelled\n\nIn testimony whereof, | nerebey sign this.\n\nCertificate of Business Name Registration\n\nand issue the sare on 12 January 2022 mn the Philippine,\n\n4\nanlbitone\n\nGectelary\n\nBusiness Name No. 3434737\n\nThis certificate is not a license to engage in any kind of business and vahd only at the\nScope indicated herein\n\nKEOF 191313026080\n\nDocumentary tiamy fae Paid Pop 10 00\n\n",
+  "dti_url_valid": false,
+  "dti_validation": null,
+  "business_info": null,
+  "name_verification": null,
+  "text_verification": {
+    "business_name_match": false,
+    "business_owner_match": false,
+    "validity_date_match": false,
+    "business_number_match": false,
+    "scope_match": false,
+    "details": "",
+    "mismatches": [],
+    "confidence": 0.0
+  },
+  "extracted_text": "Then cartifiwe [hat\nCHRISTIAN WATER REFILLING STATION\n\nATARI ALITY\nCITY OF TABU HER COURTH DI TIOC GR NATIONAL CAPITAL RCH\n18 8 Dalene NaroR regiitarad in this office purauant to the pfrngeme of Ac 3882 ag amervied\ney Act 4147 and Reputhe Act in AA andin complianga nth inn apoleatie rutes ard\n\ntaguistions prescribed ty tha Uapartment of Trade and induatey\nTie certhcate weed ty\n\nJEFFREY VILLAR BERNABE\n\n+6 valid from 12 January 2027 to 12 January 2027 subyest fo continuing Wot Gate\nwilt the above mentioned laws and all applicable lava of the Prinppene: urieyy\nvoluntanty cancelled\n\nIn testimony whereof, | nerebey sign this.\n\nCertificate of Business Name Registration\n\nand issue the sare on 12 January 2022 mn the Philippine,\n\n4\nanlbitone\n\nGectelary\n\nBusiness Name No. 3434737\n\nThis certificate is not a license to engage in any kind of business and vahd only at the\nScope indicated herein\n\nKEOF 191313026080\n\nDocumentary tiamy fae Paid Pop 10 00\n\n",
+  "timestamp": "2026-02-06T18:39:48.747495",
+  "file_path": "C:\\Projects-BSIT\\farmtoclick-main\\project\\backend\\static\\uploads\\verifications\\permit_36d0a1736f2742839e3a0c629c19d57d_valid_3.jpg",
+  "permit_validation": {
+    "passed": false,
+    "message": "QR code found but does not point to DTI BNRS. Decoded: Then cartifiwe [hat\nCHRISTIAN WATER REFILLING STATION\n\nATARI ALITY\nCITY OF TABU HER COURTH DI TIOC GR NATIONAL CAPITAL RCH\n18 8 Dalene NaroR regiitarad in this office purauant to the pfrngeme of Ac 38. Please upload a permit with a DTI QR code."
+  }
+}
