@@ -1,8 +1,7 @@
 import axios from 'axios';
 
-// Use relative URLs so React dev server proxy (package.json "proxy") forwards to backend
-// This avoids all CORS issues regardless of which port the frontend runs on
-const API_BASE_URL = '';
+// Use REACT_APP_API_URL if set (production), otherwise empty string for local proxy (development)
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

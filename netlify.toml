@@ -3,5 +3,5 @@
   publish = "web-frontend/build"
 
 [build.environment]
-  REACT_APP_API_URL = ""
+  REACT_APP_API_URL = "https://farmtoclick-api.onrender.com"
   CI = "false"
