@@ -1,6 +1,6 @@
 [build]
-  command = "cd mobile-app && npm install --legacy-peer-deps && npx expo export -p web --output-dir dist"
-  publish = "mobile-app/dist"
+  command = "cd web-frontend && npm install && npm run build"
+  publish = "web-frontend/build"
 
 [build.environment]
-  NEXT_PUBLIC_API_URL = ""
+  REACT_APP_API_URL = ""
