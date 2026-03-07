@@ -69,10 +69,10 @@ const Landing = () => {
   }, []);
 
   const teamMembers = [
-    { name: 'Member 1', role: 'Full-Stack Developer', icon: 'fa-user-graduate' },
-    { name: 'Member 2', role: 'Frontend Developer', icon: 'fa-user-graduate' },
-    { name: 'Member 3', role: 'Backend Developer', icon: 'fa-user-graduate' },
-    { name: 'Member 4', role: 'UI/UX & QA', icon: 'fa-user-graduate' },
+    { name: 'Alex Joyous D. Pielago', role: 'Lead Developer', image: '/team/member1.jpg', icon: 'fa-user-graduate' },
+    { name: 'Dweight McKaine L. Mandawe', role: 'Assistant Developer', image: '/team/member2.jpg', icon: 'fa-user-graduate' },
+    { name: 'Gerald Loise P. Garcia', role: 'Lead Researcher', image: '/team/member3.jpg', icon: 'fa-user-graduate' },
+    { name: 'Josh Christian I. Bernabe', role: 'Documentation Lead', image: '/team/member4.jpg', icon: 'fa-user-graduate' },
   ];
 
   const publications = [
@@ -484,7 +484,15 @@ const Landing = () => {
             {teamMembers.map((member, index) => (
               <div key={index} className="team-card">
                 <div className="team-avatar">
-                  <i className={`fas ${member.icon}`}></i>
+                  {member.image ? (
+                    <img
+                      src={member.image}
+                      alt={member.name}
+                      style={{ width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <i className={`fas ${member.icon}`}></i>
+                  )}
                 </div>
                 <h3>{member.name}</h3>
                 <p className="team-role">{member.role}</p>

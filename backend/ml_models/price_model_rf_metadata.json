@@ -7,18 +7,15 @@
     "day_number",
     "month",
     "day_of_week",
-    "price_low",
-    "price_high",
-    "price_spread",
     "lag_1",
     "lag_2",
     "lag_3",
     "rolling_mean_3"
   ],
-  "trained_at": "2026-02-19T05:31:53.788600",
-  "training_samples": 1261,
-  "test_samples": 423,
-  "mae": 0.3291,
-  "rmse": 0.7776,
-  "r2": 1.0
+  "trained_at": "2026-03-06T12:25:25.857733",
+  "training_samples": 1381,
+  "test_samples": 427,
+  "mae": 3.2756,
+  "rmse": 7.8743,
+  "r2": 0.9968
 }

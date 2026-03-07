@@ -35,7 +35,8 @@ cloudinary.config(
 # ---------------------------------------------------------------------------
 
 app = Flask(__name__)
-app.config.from_object(config['development'])
+_env = os.environ.get('FLASK_ENV', 'development')
+app.config.from_object(config.get(_env, config['default']))
 
 # CORS ----------------------------------------------------------------
 CORS(

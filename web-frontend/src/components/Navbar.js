@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -12,6 +13,7 @@ const Navbar = ({ activePage }) => {
     // Hide main-header on scroll, show at top; stick navbar and logo
     useEffect(() => {
       const handleScroll = () => {
+        setAboutDropdownOpen(false);
         if (window.scrollY > 30) {
           setHideHeader(true);
           setStickyNav(true);
@@ -34,8 +36,11 @@ const Navbar = ({ activePage }) => {
   const [notifCount, setNotifCount] = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [aboutDropdownOpen, setAboutDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
   const buttonRef = useRef(null);
+  const aboutDropdownRef = useRef(null);
+  const aboutBtnRef = useRef(null);
   const notifButtonRef = useRef(null);
   const notifPanelRef = useRef(null);
 
@@ -60,6 +65,14 @@ const Navbar = ({ activePage }) => {
           !notifPanelRef.current.contains(event.target)
         ) {
           setShowNotifications(false);
+        }
+        if (
+          aboutDropdownRef.current &&
+          aboutBtnRef.current &&
+          !aboutBtnRef.current.contains(event.target) &&
+          !aboutDropdownRef.current.contains(event.target)
+        ) {
+          setAboutDropdownOpen(false);
         }
       };
       document.addEventListener('click', handleClickOutside);
@@ -201,8 +214,64 @@ const Navbar = ({ activePage }) => {
             <li><Link to="/products" className={activePage === 'products' ? 'active' : ''} onClick={handleNavClick}>Products</Link></li>
             <li><Link to="/farmers" className={activePage === 'farmers' ? 'active' : ''} onClick={handleNavClick}>Farmers</Link></li>
             <li><Link to="/price-trends" className={activePage === 'price-trends' ? 'active' : ''} onClick={handleNavClick}>Price Trends</Link></li>
-            <li><Link to="/about" className={activePage === 'about' ? 'active' : ''} onClick={handleNavClick}>About Us</Link></li>
-            <li><a href="#contact" onClick={handleNavClick}>Contact</a></li>
+            <li className="about-dropdown-wrapper" style={{ position: 'relative' }}>
+              <button
+                className={`about-dropdown-btn${activePage === 'about' ? ' active' : ''}`}
+                ref={aboutBtnRef}
+                onClick={(e) => { e.stopPropagation(); setAboutDropdownOpen(prev => !prev); }}
+              >
+                About Us <i className={`fas fa-chevron-${aboutDropdownOpen ? 'up' : 'down'}`} style={{ fontSize: 10, marginLeft: 4 }}></i>
+              </button>
+              {aboutDropdownOpen && ReactDOM.createPortal(
+                <div
+                  ref={aboutDropdownRef}
+                  style={{
+                    position: 'fixed',
+                    top: aboutBtnRef.current ? aboutBtnRef.current.getBoundingClientRect().bottom + 8 : 50,
+                    left: aboutBtnRef.current ? Math.max(10, aboutBtnRef.current.getBoundingClientRect().left + aboutBtnRef.current.offsetWidth / 2 - 260) : 'auto',
+                    background: 'white',
+                    borderRadius: 12,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+                    width: 520,
+                    maxWidth: 'calc(100vw - 20px)',
+                    boxSizing: 'border-box',
+                    padding: '20px 24px 16px',
+                    zIndex: 99999,
+                  }}
+                >
+                  <p style={{ color: '#555', fontSize: 13, lineHeight: 1.7, margin: '0 0 16px', textAlign: 'center' }}>
+                    FarmToClick bridges the gap between local farmers and consumers, making fresh produce accessible with just a few clicks.
+                    Our platform empowers farmers to reach a wider audience while giving buyers the convenience of shopping directly from trusted sources.
+                    Join us in building a healthier, more sustainable community — one harvest at a time.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Link
+                      to="/about"
+                      onClick={() => { setAboutDropdownOpen(false); handleNavClick(); }}
+                      style={{
+                        fontSize: 13, padding: '8px 20px', borderRadius: 6,
+                        border: '2px solid #2c7a2c', color: '#2c7a2c', background: 'white',
+                        textDecoration: 'none', fontWeight: 600,
+                      }}
+                    >
+                      About Us
+                    </Link>
+                    <a
+                      href="#contact"
+                      onClick={() => { setAboutDropdownOpen(false); handleNavClick(); }}
+                      style={{
+                        fontSize: 13, padding: '8px 20px', borderRadius: 6,
+                        border: '2px solid #2c7a2c', color: 'white', background: '#2c7a2c',
+                        textDecoration: 'none', fontWeight: 600,
+                      }}
+                    >
+                      Contact
+                    </a>
+                  </div>
+                </div>,
+                document.body
+              )}
+            </li>
             {user && user.is_farmer && (
               <li><Link to="/farmer-dashboard" className={activePage === 'myshop' ? 'active' : ''} onClick={handleNavClick}>My Shop</Link></li>
             )}

@@ -8,7 +8,7 @@ const Footer = () => {
         <div className="footer-content">
           <div className="footer-section">
             <h3><i className="fas fa-seedling"></i> FarmtoClick</h3>
-            <p>Connecting communities with fresh, local produce since 2024.</p>
+            <p>Connecting communities with fresh, local produce since 2026.</p>
           </div>
           <div className="footer-section">
             <h4>Quick Links</h4>
@@ -24,7 +24,6 @@ const Footer = () => {
             <ul>
               <li><Link to="/start-selling">Join as Farmer</Link></li>
               <li><a href="/farmer-resources">Farmer Resources</a></li>
-              <li><a href="/success-stories">Success Stories</a></li>
             </ul>
           </div>
           <div className="footer-section">
@@ -37,7 +36,7 @@ const Footer = () => {
           </div>
         </div>
         <div className="footer-bottom">
-          <p>&copy; 2024 FarmtoClick. All rights reserved.</p>
+          <p>&copy; 2026 FarmtoClick. All rights reserved.</p>
         </div>
       </div>
     </footer>

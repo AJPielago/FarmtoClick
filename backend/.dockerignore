@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+training_data/
+ml_models/*.pkl
+static/uploads/
+verification_records/
+*.bak

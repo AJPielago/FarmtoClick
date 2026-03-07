@@ -7,51 +7,55 @@ const AboutUs = () => {
 
   const teamMembers = [
     {
-      name: 'Member 1',
-      role: 'Full-Stack Developer',
+      name: 'Alex Joyous D. Pielago',
+      role: 'Lead Developer',
+      image: '/team/member1.jpg',
       icon: 'fa-user-graduate',
       campus: 'TUP - Taguig Campus',
       year: '3rd Year BSIT',
       socials: {
         linkedin: 'https://linkedin.com',
         github: 'https://github.com',
-        facebook: 'https://facebook.com',
+        facebook: 'https://facebook.com/akuro10',
       },
     },
     {
-      name: 'Member 2',
-      role: 'Frontend Developer',
+      name: 'Dweight McKaine L. Mandawe',
+      role: 'Assistant Developer',
+      image: '/team/member2.jpg',
       icon: 'fa-user-graduate',
       campus: 'TUP - Taguig Campus',
       year: '3rd Year BSIT',
       socials: {
         linkedin: 'https://linkedin.com',
-        github: 'https://github.com',
-        facebook: 'https://facebook.com',
+        github: 'https://github.com/dweinm',
+        facebook: 'https://https://www.facebook.com/dwein.mandawe.com',
       },
     },
     {
-      name: 'Member 3',
-      role: 'Backend Developer',
+      name: 'Gerald Loise P. Garcia',
+      role: 'Lead Researcher',
+      image: '/team/member3.jpg',
       icon: 'fa-user-graduate',
       campus: 'TUP - Taguig Campus',
       year: '3rd Year BSIT',
       socials: {
         linkedin: 'https://linkedin.com',
-        github: 'https://github.com',
-        facebook: 'https://facebook.com',
+        github: 'https://github.com/loise1630',
+        facebook: 'https://facebook.com/grldgrc',
       },
     },
     {
-      name: 'Member 4',
-      role: 'UI/UX & QA',
+      name: 'Josh Christian I. Bernabe',
+      role: 'Documentation Lead',
+      image: '/team/member4.jpg',
       icon: 'fa-user-graduate',
       campus: 'TUP - Taguig Campus',
       year: '3rd Year BSIT',
       socials: {
-        linkedin: 'https://linkedin.com',
-        github: 'https://github.com',
-        facebook: 'https://facebook.com',
+        linkedin: 'https://linkedin.com/in/josh-christian-bernabe-b22391179/',
+        github: 'https://github.com/printlnreaperdoc',
+        facebook: 'https://facebook.com/joshchristian.bernabe.x.676',
       },
     },
   ];
@@ -70,7 +74,15 @@ const AboutUs = () => {
           {teamMembers.map((member, index) => (
             <div key={index} className="team-card" style={{ padding: '30px 20px' }}>
               <div className="team-avatar" style={{ marginBottom: '15px' }}>
-                <i className={`fas ${member.icon}`}></i>
+                {member.image ? (
+                  <img
+                    src={member.image}
+                    alt={member.name}
+                    style={{ width: '100px', height: '100px', borderRadius: '50%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <i className={`fas ${member.icon}`}></i>
+                )}
               </div>
               <h3 style={{ marginBottom: '5px' }}>{member.name}</h3>
               <p className="team-role" style={{ color: '#4CAF50', fontWeight: 'bold', marginBottom: '10px' }}>
