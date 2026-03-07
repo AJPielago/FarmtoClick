@@ -1,5 +1,5 @@
 [build]
-  command = "cd mobile-app && npm ci && npx expo export -p web"
+  command = "cd mobile-app && npm install --legacy-peer-deps && npx expo export -p web --output-dir dist"
   publish = "mobile-app/dist"
 
 [build.environment]
