@@ -66,23 +66,24 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 # ---------------------------------------------------------------------------
 _is_reloader_child = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
 
+print("Connecting to MongoDB...", flush=True)
 try:
-    connect(host=app.config['MONGODB_URI'], serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
-    print("Connected to MongoDB with MongoEngine!")
+    connect(host=app.config['MONGODB_URI'], serverSelectionTimeoutMS=5000, connectTimeoutMS=5000, socketTimeoutMS=5000)
+    print("Connected to MongoDB with MongoEngine!", flush=True)
 except Exception as e:
-    print(f"MongoDB connection failed: {e}")
+    print(f"MongoDB connection failed: {e}", flush=True)
 
 # ---------------------------------------------------------------------------
 # ML Verification System
 # ---------------------------------------------------------------------------
+print("Loading ML Verification System...", flush=True)
 try:
     from image_verification import ImageVerificationSystem
-    verifier = ImageVerificationSystem(quiet=not _is_reloader_child)
+    verifier = ImageVerificationSystem(quiet=True)
     app.config['VERIFIER'] = verifier
-    if _is_reloader_child:
-        print("ML Verification System initialized!")
+    print("ML Verification System initialized!", flush=True)
 except Exception as e:
-    print(f"Warning: ML Verification System failed to initialize: {e}")
+    print(f"Warning: ML Verification System failed to initialize: {e}", flush=True)
     app.config['VERIFIER'] = None
 
 # ---------------------------------------------------------------------------
@@ -204,10 +205,9 @@ app.register_blueprint(reviews_bp)
 try:
     from models import User
     User.objects.limit(1).count()
-    if _is_reloader_child:
-        print("Models imported & MongoDB connection verified!")
+    print("Models imported & MongoDB connection verified!", flush=True)
 except Exception as e:
-    print(f"Model/DB test failed: {e}")
+    print(f"Model/DB test failed (non-fatal): {e}", flush=True)
 
 # ---------------------------------------------------------------------------
 # One-time fix: rename misparsed DTI records "1,000 ml/bottle"
@@ -229,7 +229,9 @@ try:
                 print(f"Fixed {_fix_result.modified_count} misparsed DTI record(s): "
                       f"'1,000 ml/bottle' → 'Cooking Oil (Palm Olein, Jolly Brand) 1,000 ml/bottle'")
 except Exception as e:
-    print(f"DTI record fix skipped: {e}")
+    print(f"DTI record fix skipped: {e}", flush=True)
+
+print("App startup complete!", flush=True)
 
 # ---------------------------------------------------------------------------
 # Run
