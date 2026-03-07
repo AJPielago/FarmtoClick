@@ -4,3 +4,4 @@
 
 [build.environment]
   REACT_APP_API_URL = ""
+  CI = "false"
