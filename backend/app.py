@@ -67,9 +67,8 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 _is_reloader_child = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
 
 try:
-    connect(host=app.config['MONGODB_URI'])
-    if _is_reloader_child:
-        print("Connected to MongoDB with MongoEngine!")
+    connect(host=app.config['MONGODB_URI'], serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
+    print("Connected to MongoDB with MongoEngine!")
 except Exception as e:
     print(f"MongoDB connection failed: {e}")
 
