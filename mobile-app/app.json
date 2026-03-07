@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "FarmtoClick-Mobile",
+    "slug": "farmtoclick",
+    "owner": "alexj.p",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "FarmtoClick needs your location to track deliveries in real-time.",
+        "NSCameraUsageDescription": "FarmtoClick needs camera access to take delivery proof photos and upload product images.",
+        "NSPhotoLibraryUsageDescription": "FarmtoClick needs photo library access to upload product and profile images."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.farmtoclick.mobile",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "FarmtoClick needs your location to track deliveries in real-time.",
+          "locationWhenInUsePermission": "FarmtoClick needs your location to track deliveries in real-time."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FarmtoClick needs photo library access to upload product and profile images.",
+          "cameraPermission": "FarmtoClick needs camera access to take delivery proof photos and upload product images."
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "extra": {
+      "apiUrl": "https://oscitant-semirespectable-dominica.ngrok-free.dev",
+      "eas": {
+        "projectId": "d75e0ce2-5f91-4476-a6d2-39b4a25926ff"
+      }
+    }
+  }
+}
