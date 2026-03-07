@@ -1,0 +1,6 @@
+[build]
+  command = "npx expo export -p web"
+  publish = "mobile-app/dist"
+
+[build.environment]
+  NEXT_PUBLIC_API_URL = ""
