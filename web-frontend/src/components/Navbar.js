@@ -147,50 +147,66 @@ const Navbar = ({ activePage }) => {
                     <i className="fas fa-chevron-down"></i>
                   </button>
 
-                  <div className={`profile-dropdown${dropdownOpen ? ' show' : ''}`} ref={dropdownRef}>
-                    <div className="dropdown-content">
-                      <Link to="/profile" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                        <i className="fas fa-user-edit"></i> Edit Profile
-                      </Link>
-                      <Link to="/cart" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                        <i className="fas fa-shopping-cart"></i> My Cart
-                      </Link>
-                      <Link to="/orders" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                        <i className="fas fa-shopping-bag"></i> My Orders
-                      </Link>
-                      {user.is_admin && (
-                        <>
-                          <div className="dropdown-divider"></div>
-                          <Link to="/admin-dashboard" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                            <i className="fas fa-chart-bar"></i> Admin Dashboard
-                          </Link>
-                        </>
-                      )}
-                      {user.is_farmer && (
-                        <>
-                          <div className="dropdown-divider"></div>
-                          <Link to="/farmer-dashboard" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                            <i className="fas fa-store"></i> Farmer Dashboard
-                          </Link>
-                        </>
-                      )}
-                      {user.role === 'rider' && (
-                        <>
-                          <div className="dropdown-divider"></div>
-                          <Link to="/rider-dashboard" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                            <i className="fas fa-tachometer-alt"></i> Rider Dashboard
-                          </Link>
-                          <Link to="/rider-orders" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                            <i className="fas fa-motorcycle"></i> Assigned Orders
-                          </Link>
-                        </>
-                      )}
-                      <div className="dropdown-divider"></div>
-                      <button onClick={() => { setDropdownOpen(false); logout(); }} className="dropdown-item logout">
-                        <i className="fas fa-sign-out-alt"></i> Logout
-                      </button>
-                    </div>
-                  </div>
+                  {dropdownOpen && buttonRef.current && ReactDOM.createPortal(
+                    <div
+                      className={`profile-dropdown show`}
+                      ref={dropdownRef}
+                      style={{
+                        position: 'fixed',
+                        top: buttonRef.current.getBoundingClientRect().bottom + 8,
+                        right: Math.max(8, window.innerWidth - buttonRef.current.getBoundingClientRect().right + 8),
+                        minWidth: 200,
+                        maxWidth: 320,
+                        width: 'auto',
+                        boxSizing: 'border-box',
+                        zIndex: 99999,
+                      }}
+                    >
+                      <div className="dropdown-content">
+                        <Link to="/profile" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                          <i className="fas fa-user-edit"></i> Edit Profile
+                        </Link>
+                        <Link to="/cart" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                          <i className="fas fa-shopping-cart"></i> My Cart
+                        </Link>
+                        <Link to="/orders" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                          <i className="fas fa-shopping-bag"></i> My Orders
+                        </Link>
+                        {user.is_admin && (
+                          <>
+                            <div className="dropdown-divider"></div>
+                            <Link to="/admin-dashboard" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                              <i className="fas fa-chart-bar"></i> Admin Dashboard
+                            </Link>
+                          </>
+                        )}
+                        {user.is_farmer && (
+                          <>
+                            <div className="dropdown-divider"></div>
+                            <Link to="/farmer-dashboard" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                              <i className="fas fa-store"></i> Farmer Dashboard
+                            </Link>
+                          </>
+                        )}
+                        {user.role === 'rider' && (
+                          <>
+                            <div className="dropdown-divider"></div>
+                            <Link to="/rider-dashboard" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                              <i className="fas fa-tachometer-alt"></i> Rider Dashboard
+                            </Link>
+                            <Link to="/rider-orders" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                              <i className="fas fa-motorcycle"></i> Assigned Orders
+                            </Link>
+                          </>
+                        )}
+                        <div className="dropdown-divider"></div>
+                        <button onClick={() => { setDropdownOpen(false); logout(); }} className="dropdown-item logout">
+                          <i className="fas fa-sign-out-alt"></i> Logout
+                        </button>
+                      </div>
+                    </div>,
+                    document.body
+                  )}
                 </div>
               </div>
             ) : (
