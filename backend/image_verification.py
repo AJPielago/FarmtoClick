@@ -358,22 +358,45 @@ class ImageVerificationSystem:
             if img is None:
                 return False, ""
 
-            # Preprocess for OCR
+            # Resize large images to a standard width for consistent OCR
+            h, w = img.shape[:2]
+            target_w = 1200
+            if w > target_w:
+                scale = target_w / w
+                img = cv2.resize(img, (target_w, int(h * scale)), interpolation=cv2.INTER_AREA)
+
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            
-            # Improve contrast
+
+            # Try multiple preprocessing strategies; pick the one that yields the most text
+            best_text = ""
+
+            # Strategy 1: CLAHE + Otsu
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             enhanced = clahe.apply(gray)
-            
-            # Threshold for better OCR accuracy
-            _, thresh = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            
-            # Extract text
-            text = pytesseract.image_to_string(thresh)
-            
-            if text.strip():
-                print(f"[INFO] OCR extracted text: {len(text)} characters")
-                return True, text
+            _, thresh1 = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            text1 = pytesseract.image_to_string(thresh1, config='--psm 6')
+            if len(text1.strip()) > len(best_text):
+                best_text = text1.strip()
+
+            # Strategy 2: Adaptive threshold
+            thresh2 = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 8
+            )
+            text2 = pytesseract.image_to_string(thresh2, config='--psm 6')
+            if len(text2.strip()) > len(best_text):
+                best_text = text2.strip()
+
+            # Strategy 3: Simple sharpen + threshold
+            kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+            sharpened = cv2.filter2D(gray, -1, kernel)
+            _, thresh3 = cv2.threshold(sharpened, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            text3 = pytesseract.image_to_string(thresh3, config='--psm 6')
+            if len(text3.strip()) > len(best_text):
+                best_text = text3.strip()
+
+            if best_text:
+                print(f"[INFO] OCR extracted text: {len(best_text)} characters")
+                return True, best_text
         except Exception as e:
             print(f"[WARN] OCR extraction failed: {e}")
 
@@ -1013,10 +1036,22 @@ class ImageVerificationSystem:
         if marker_hits >= 2:
             details['dti_confirmed'] = True
         else:
-            details['message'] = (
-                "Page did not contain expected DTI registration markers. "
-                "It may not be a valid DTI certificate page."
-            )
+            # Check if the page is an expired QR shortlink
+            expired_indicators = ['expired', 'time limit', 'no longer available',
+                                  'not found', 'removed', 'deactivated']
+            page_text_lower = clean_text.lower()
+            is_expired = any(ind in page_text_lower for ind in expired_indicators)
+
+            if is_expired:
+                details['message'] = (
+                    "QR code shortlink has expired or been deactivated. "
+                    "The permit may still be valid — ML classification will be used as fallback."
+                )
+            else:
+                details['message'] = (
+                    "Page did not contain expected DTI registration markers. "
+                    "It may not be a valid DTI certificate page."
+                )
             return False, details
 
         # Try to scrape business name
@@ -1400,9 +1435,11 @@ class ImageVerificationSystem:
                     base_confidence = 0.90 - domain_penalty
 
                     # Boost / penalise based on name match
+                    # Only penalise if the user actually provided names to compare
+                    user_provided_names = bool(user_business_name or user_owner_name)
                     if name_check['overall_match']:
                         base_confidence += 0.05
-                    elif name_check['score'] < 0.4 and (page_biz_name or page_own_name):
+                    elif user_provided_names and name_check['score'] < 0.4 and (page_biz_name or page_own_name):
                         # Names clearly don't match - suspicious
                         base_confidence -= 0.20
                         results['permit_validation'] = {
@@ -1451,10 +1488,15 @@ class ImageVerificationSystem:
 
                     return results
                 else:
-                    # Online page check was inconclusive
+                    # Online page check was inconclusive or failed
+                    # Use ML classifier as tiebreaker when QR was decoded
+                    ml_is_permit = (ml_result.get('available') and
+                                    ml_result.get('is_permit') and
+                                    ml_result['confidence'] > 0.7)
+
                     if not page_details.get('reachable'):
                         # Page unreachable — use ML as tiebreaker
-                        if ml_result.get('available') and ml_result.get('is_permit') and ml_result['confidence'] > 0.7:
+                        if ml_is_permit:
                             results['valid'] = True
                             results['confidence'] = 0.75 - domain_penalty
                             results['permit_validation'] = {
@@ -1476,12 +1518,48 @@ class ImageVerificationSystem:
                             }
                             return results
                     else:
-                        results['confidence'] = 0.4
-                        results['permit_validation'] = {
-                            'passed': False,
-                            'message': page_details.get('message', 'Permit page validation failed.'),
-                        }
-                        return results
+                        # Page reachable but no DTI markers found
+                        # Common cause: QR shortener link expired (qrs.ly, me-qr.com)
+                        page_msg = page_details.get('message', '')
+                        is_expired_shortlink = any(
+                            kw in page_msg.lower()
+                            for kw in ['expired', 'not found', 'removed', 'no longer']
+                        ) or any(
+                            kw in (page_details.get('final_url') or '').lower()
+                            for kw in ['expired', '404', 'error']
+                        )
+
+                        if ml_is_permit:
+                            # ML confidently says it's a permit — accept with
+                            # moderate confidence (QR was present but link expired/failed)
+                            conf = 0.80 - domain_penalty
+                            if is_expired_shortlink:
+                                reason = (
+                                    "QR code shortlink has expired, but ML classifier "
+                                    f"confirms this is an authentic permit "
+                                    f"(confidence: {ml_result['confidence']:.0%}). "
+                                    "Consider updating the QR code on your permit."
+                                )
+                            else:
+                                reason = (
+                                    "Permit page did not contain expected registration "
+                                    "markers, but ML classifier confirms this is an "
+                                    f"authentic permit (confidence: {ml_result['confidence']:.0%})."
+                                )
+                            results['valid'] = True
+                            results['confidence'] = conf
+                            results['permit_validation'] = {
+                                'passed': True,
+                                'message': reason,
+                            }
+                            return results
+                        else:
+                            results['confidence'] = 0.4
+                            results['permit_validation'] = {
+                                'passed': False,
+                                'message': page_details.get('message', 'Permit page validation failed.'),
+                            }
+                            return results
             else:
                 # QR found but NOT a URL — treat as text-based QR with business info
                 print(f"📄 Processing text-based QR code (not a URL)")
