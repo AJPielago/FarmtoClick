@@ -402,6 +402,58 @@ class ImageVerificationSystem:
 
         return False, ""
 
+    def _verify_names_against_ocr(self, image_path, user_business_name=None,
+                                   user_owner_name=None):
+        """
+        Check whether user-provided names appear in the permit's OCR text.
+        Returns True if names match (or no names provided), False if mismatch.
+        """
+        if not user_business_name and not user_owner_name:
+            return True  # nothing to check
+
+        ocr_ok, ocr_text = self._extract_text_with_ocr(image_path)
+        if not ocr_ok or not ocr_text:
+            # Can't extract text — give benefit of the doubt
+            return True
+
+        ocr_lower = ocr_text.lower()
+
+        def name_in_ocr(name):
+            """Check if a name appears in OCR text via substring or fuzzy match."""
+            if not name or len(name.strip()) < 2:
+                return True  # skip trivially short or empty names
+            name_norm = name.lower().strip()
+            # Direct substring
+            if name_norm in ocr_lower:
+                return True
+            # Check individual significant words (>= 3 chars)
+            words = [w for w in name_norm.split() if len(w) >= 3]
+            if words:
+                hits = sum(1 for w in words if w in ocr_lower)
+                if hits / len(words) >= 0.5:
+                    return True
+            # Fuzzy: check each OCR line
+            if FUZZYWUZZY_AVAILABLE:
+                for line in ocr_text.split('\n'):
+                    line = line.strip()
+                    if len(line) < 3:
+                        continue
+                    ratio = fuzz.token_set_ratio(name_norm, line.lower()) / 100.0
+                    if ratio >= 0.65:
+                        return True
+            return False
+
+        biz_ok = name_in_ocr(user_business_name) if user_business_name else True
+        owner_ok = name_in_ocr(user_owner_name) if user_owner_name else True
+
+        # Accept if at least one name matches (some permits only show one)
+        if biz_ok or owner_ok:
+            return True
+
+        print(f"[WARN] OCR name check failed: business='{user_business_name}' "
+              f"owner='{user_owner_name}' not found in permit text")
+        return False
+
     def _extract_dti_id_from_ocr(self, ocr_text):
         """
         Try to extract DTI registration/reference ID from OCR text using fuzzy matching.
@@ -1497,6 +1549,23 @@ class ImageVerificationSystem:
                     if not page_details.get('reachable'):
                         # Page unreachable — use ML as tiebreaker
                         if ml_is_permit:
+                            # Verify names against OCR text before accepting
+                            if user_business_name or user_owner_name:
+                                ocr_name_ok = self._verify_names_against_ocr(
+                                    image_path, user_business_name, user_owner_name)
+                                if not ocr_name_ok:
+                                    results['confidence'] = 0.5
+                                    results['permit_validation'] = {
+                                        'passed': False,
+                                        'message': (
+                                            "ML confirms this is a permit, but the names you "
+                                            "provided do not match the text on the permit image. "
+                                            "Please ensure you entered the exact business name "
+                                            "and owner name shown on your permit."
+                                        ),
+                                        'name_mismatch': True,
+                                    }
+                                    return results
                             results['valid'] = True
                             results['confidence'] = 0.75 - domain_penalty
                             results['permit_validation'] = {
@@ -1530,8 +1599,25 @@ class ImageVerificationSystem:
                         )
 
                         if ml_is_permit:
-                            # ML confidently says it's a permit — accept with
-                            # moderate confidence (QR was present but link expired/failed)
+                            # ML confidently says it's a permit — but verify
+                            # user-provided names against OCR text first
+                            if user_business_name or user_owner_name:
+                                ocr_name_ok = self._verify_names_against_ocr(
+                                    image_path, user_business_name, user_owner_name)
+                                if not ocr_name_ok:
+                                    results['confidence'] = 0.5
+                                    results['permit_validation'] = {
+                                        'passed': False,
+                                        'message': (
+                                            "ML confirms this is a permit, but the names you "
+                                            "provided do not match the text on the permit image. "
+                                            "Please ensure you entered the exact business name "
+                                            "and owner name shown on your permit."
+                                        ),
+                                        'name_mismatch': True,
+                                    }
+                                    return results
+
                             conf = 0.80 - domain_penalty
                             if is_expired_shortlink:
                                 reason = (
