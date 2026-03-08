@@ -195,19 +195,28 @@ class ImageVerificationSystem:
             img = cv2.imread(image_path)
             if img is None:
                 return False, "Invalid image file"
+            # Use a fixed-size resize for consistent clarity measurements
+            # (reduces variance between camera resolutions and compression).
+            standard_w, standard_h = 800, 600
+            orig_h, orig_w = img.shape[:2]
+            if orig_h < 200 or orig_w < 200:
+                return False, f"Image too small ({orig_w}×{orig_h}). Please upload at least 400×300."
 
-            h, w = img.shape[:2]
-            if h < 200 or w < 200:
-                return False, f"Image too small ({w}×{h}). Please upload at least 400×300."
+            try:
+                resized = cv2.resize(img, (standard_w, standard_h), interpolation=cv2.INTER_AREA)
+            except Exception:
+                resized = img
 
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
             lap_var = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-            # Improved threshold: lowered from 50 to 30 for better sensitivity
-            if lap_var < 30:
+            # Lowered threshold to reduce false positives on compressed/phone images
+            BLUR_THRESHOLD = 10.0
+            if lap_var < BLUR_THRESHOLD:
+                brightness = np.mean(gray)
                 return False, (
-                    f"Image is too blurry (clarity {lap_var:.0f}/30+). "
-                    "Please take a clearer photo of the QR code on your permit."
+                    f"Image is too blurry (clarity={lap_var:.1f} < {BLUR_THRESHOLD}). "
+                    f"Brightness={brightness:.0f}. Please take a clearer, well-lit photo with the QR code in focus."
                 )
 
             # Brightness range: 20-253 (permits on white paper are naturally
