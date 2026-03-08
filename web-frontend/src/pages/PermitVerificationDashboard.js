@@ -31,9 +31,10 @@ const PermitVerificationDashboard = () => {
       
       // Use appropriate endpoint based on user role
       // Admin uses permit-verifications from database, users see their own status
+      const API = process.env.REACT_APP_API_URL || '';
       const endpoint = isAdmin 
-        ? 'http://localhost:5001/api/admin/permit-verifications'
-        : 'http://localhost:5001/api/user/verification-status';
+        ? `${API}/api/admin/permit-verifications`
+        : `${API}/api/user/verification-status`;
       
       console.log('📡 Using endpoint:', endpoint);
       

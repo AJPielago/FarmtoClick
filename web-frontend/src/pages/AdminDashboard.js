@@ -62,12 +62,13 @@ const AdminDashboard = () => {
       const token = localStorage.getItem('userToken');
       const headers = { 'Authorization': token ? `Bearer ${token}` : '' };
 
+      const API = process.env.REACT_APP_API_URL || '';
       const [productsRes, farmersRes, ordersRes, verificationsRes, ridersRes] = await Promise.all([
-        fetch('http://localhost:5001/api/admin/products', { headers, credentials: 'include' }),
-        fetch('http://localhost:5001/api/admin/farmers', { headers, credentials: 'include' }),
-        fetch('http://localhost:5001/api/admin/orders', { headers, credentials: 'include' }),
-        fetch('http://localhost:5001/api/admin/verifications', { headers, credentials: 'include' }),
-        fetch('http://localhost:5001/api/admin/riders', { headers, credentials: 'include' }),
+        fetch(`${API}/api/admin/products`, { headers, credentials: 'include' }),
+        fetch(`${API}/api/admin/farmers`, { headers, credentials: 'include' }),
+        fetch(`${API}/api/admin/orders`, { headers, credentials: 'include' }),
+        fetch(`${API}/api/admin/verifications`, { headers, credentials: 'include' }),
+        fetch(`${API}/api/admin/riders`, { headers, credentials: 'include' }),
       ]);
 
       let totalProducts = 0, totalFarmers = 0, totalOrders = 0, totalRevenue = 0, pendingVerifications = 0, activeRiders = 0, totalRiders = 0;
@@ -110,7 +111,7 @@ const AdminDashboard = () => {
   const loadReports = async (days) => {
     try {
       const token = localStorage.getItem('userToken');
-      const res = await fetch(`http://localhost:5001/api/admin/reports?days=${days}`, {
+      const res = await fetch(`${process.env.REACT_APP_API_URL || ''}/api/admin/reports?days=${days}`, {
         headers: { 'Authorization': token ? `Bearer ${token}` : '' },
         credentials: 'include',
       });

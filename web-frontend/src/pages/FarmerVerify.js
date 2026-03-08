@@ -387,7 +387,7 @@ const FarmerVerify = () => {
     formDataToSend.append('permit_owner_name', formData.permit_owner_name);
 
     try {
-      const response = await fetch('http://localhost:5001/farmer/verify', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || ''}/farmer/verify`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
