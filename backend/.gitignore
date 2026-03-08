@@ -4,4 +4,5 @@ __pycache__/
 instance/
 training_data/
 ml_models/*.pkl
+!ml_models/permit_classifier.pkl
 static/uploads/
